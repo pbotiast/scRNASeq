@@ -1,0 +1,5 @@
+streamlit
+scanpy
+plotly
+scikit-misc # Si es necesario explícitamente
+# anndata, pandas, matplotlib, numpy, scipy suelen ser instalados por scanpy
