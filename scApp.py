@@ -205,8 +205,15 @@ if st.session_state.adata_combined_raw is not None:
                 status_text_main.text("Escalado..."); sc.pp.scale(st.session_state.adata_hvg_filtered_intermediate, max_value=10); progress_bar_main.progress(50)
                 status_text_main.text("PCA..."); sc.tl.pca(st.session_state.adata_hvg_filtered_intermediate, svd_solver='arpack', n_comps=st.session_state.n_pcs_val); progress_bar_main.progress(62)
                 status_text_main.text("Vecinos y UMAP..."); sc.pp.neighbors(st.session_state.adata_hvg_filtered_intermediate, n_neighbors=10, n_pcs=st.session_state.n_pcs_val); sc.tl.umap(st.session_state.adata_hvg_filtered_intermediate); progress_bar_main.progress(75)
-                status_text_main.text("Clustering..."); sc.tl.leiden(st.session_state.adata_hvg_filtered_intermediate, resolution=st.session_state.leiden_res_val, key_added="leiden_clusters"); progress_bar_main.progress(88)
-
+                status_text_main.text("Clustering..."); 
+                sc.tl.leiden(
+                    st.session_state.adata_hvg_filtered_intermediate, 
+                    resolution=st.session_state.leiden_res_val, 
+                    key_added="leiden_clusters",
+                    flavor="igraph",         # Usar el backend igraph
+                    n_iterations=2,         # Como sugiere el warning para igraph
+                    directed=False          # Asegurarse de que es False, como requiere igraph (generalmente es el default)
+                )
                 adata_pipeline.obs['leiden_clusters'] = st.session_state.adata_hvg_filtered_intermediate.obs['leiden_clusters'].copy()
                 adata_pipeline.obsm['X_umap'] = st.session_state.adata_hvg_filtered_intermediate.obsm['X_umap'].copy()
 
