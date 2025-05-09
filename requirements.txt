@@ -3,4 +3,9 @@ scanpy
 plotly
 scikit-misc # Si es necesario explícitamente
 igraph
-# anndata, pandas, matplotlib, numpy, scipy suelen ser instalados por scanpy
+leidenalg
+anndata
+pandas
+matplotlib
+numpy 
+scipy
