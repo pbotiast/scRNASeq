@@ -328,35 +328,59 @@ with st.sidebar:
                 for msg in validation_messages:
                     if "NO son válidos" in msg: st.error(msg)
                     else: st.info(msg)
-
+            # Si todos los archivos son válidos, proceder a cargar y concatenar
             if all_valid_globally:
                 with st.spinner("Cargando y concatenando datos..."):
                     try:
-                        adatas_list = []
+                        adatas_dict = {} # Usar un diccionario
+                        sample_names_ordered = [] # Para mantener el orden si es necesario para otras cosas
+
                         for i in range(st.session_state.num_samples):
+                            sample_name_user = st.session_state.sample_files[f"sample_name_{i}"]
+                            sample_names_ordered.append(sample_name_user)
+
                             adata_sample = load_10x_data(
                                 st.session_state.sample_files[f"matrix_file_{i}"],
                                 st.session_state.sample_files[f"features_file_{i}"],
                                 st.session_state.sample_files[f"barcodes_file_{i}"],
-                                st.session_state.sample_files[f"sample_name_{i}"]
+                                sample_name_user # load_10x_data ya añade .obs['sample']
                             )
                             if adata_sample is None:
-                                raise ValueError(f"Fallo al cargar Muestra {i+1} ({st.session_state.sample_files[f'sample_name_{i}']}).")
-                            adatas_list.append(adata_sample)
-                        
-                        st.session_state.adata_raw = ad.concat(adatas_list, label='sample_batch_id', index_unique='-', join='outer', fill_value=0) # fill_value=0 es importante
-                        st.session_state.adata_raw.obs['sample'] = st.session_state.adata_raw.obs['sample_batch_id'].astype(str)
+                                raise ValueError(f"Fallo al cargar Muestra {i+1} ({sample_name_user}).")
+                            
+                            # No necesitas añadir .obs['sample'] aquí si load_10x_data lo hace,
+                            # pero es crucial que la columna que concat usará para el label
+                            # contenga estos nombres. O, mejor, usar el diccionario.
+                            adatas_dict[sample_name_user] = adata_sample # Clave es el nombre de la muestra
 
-                        st.session_state.adata_processed = None # Resetear resultados anteriores
+                        # Concatenar usando el diccionario.
+                        # El parámetro 'label' ahora nombrará la columna que contiene las CLAVES del diccionario.
+                        st.session_state.adata_raw = ad.concat(
+                            adatas_dict, # Pasar el diccionario
+                            label='sample',    # La nueva columna se llamará 'sample' y contendrá los nombres de muestra
+                            index_unique='-', 
+                            join='outer', 
+                            fill_value=0
+                        )
+                        # Ya no necesitas la línea:
+                        # st.session_state.adata_raw.obs['sample'] = st.session_state.adata_raw.obs['sample_batch_id'].astype(str)
+                        # porque .obs['sample'] ahora tiene los nombres correctos.
+
+                        # Verificación (opcional, para DEBUG)
+                        print("DEBUG: Valores únicos en st.session_state.adata_raw.obs['sample'] después de concat:", 
+                              st.session_state.adata_raw.obs['sample'].unique())
+
+                        st.session_state.adata_processed = None 
                         st.session_state.analysis_done = False
-                        st.session_state.marker_genes_df = None
-                        st.session_state.dea_results_df = None
+                        # ... (resetear otros estados) ...
                         st.success(f"Carga completada: {st.session_state.adata_raw.n_obs} células, {st.session_state.adata_raw.n_vars} genes.")
                     except Exception as e_load:
                         st.error(f"Error durante la carga: {e_load}")
                         st.error(traceback.format_exc())
                         st.session_state.adata_raw = None
-            # else: # El mensaje de error ya se mostró en el expander
+
+                # Si la validación falla, no se carga nada
+                # else: # El mensaje de error ya se mostró en el expander
             #     st.error("Algunos archivos no pasaron la validación. Por favor, revisa los mensajes de error detallados arriba.")
 
     elif st.session_state.num_samples > 0 :
@@ -887,4 +911,5 @@ st.sidebar.markdown("**Versión:** 0.8")
 st.sidebar.markdown("**Última Actualización:** 2025-05-12")
 st.sidebar.markdown("**Notas:** Esta aplicación es un prototipo y puede contener errores. Usa bajo tu propio riesgo.")
 st.sidebar.markdown("**Disclaimer:** Esta aplicación es un prototipo y puede contener errores. Usa bajo tu propio riesgo.")
+
 
