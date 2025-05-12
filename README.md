@@ -86,76 +86,66 @@ Esta es la primera sección que encontrarás y es esencial para iniciar cualquie
     *   **Función:** Un campo numérico para especificar cuántas muestras biológicas o datasets individuales de scRNA-seq deseas analizar conjuntamente.
     *   **Uso:** Incrementa o disminuye este valor para que aparezcan los campos de carga de archivos correspondientes a cada muestra. Mínimo 1, máximo 10 (configurable en el código).
 
-*   **Para cada Muestra (Muestra 1, Muestra 2, etc.):**
+*   **Para cada Muestra (Muestra 1, Muestra 2, etc.):** (Organizado con `st.subheader` por muestra)
     *   **`Nombre Muestra X`**:
-        *   **Función:** Un campo de texto para asignar un nombre identificador único a cada muestra. Este nombre se utilizará en los gráficos y tablas para distinguir los datos de diferentes orígenes.
+        *   **Función:** Un campo de texto para asignar un nombre identificador único a cada muestra. **Este nombre se conservará y se utilizará en todo el análisis** para identificar las células de esta muestra (ej. en plots UMAP, DEA, etc.).
         *   **Uso:** Introduce un nombre descriptivo (ej: `Control_Rep1`, `TratamientoA_Dia3`). Por defecto, se asigna `MuestraX`.
-    *   **`Matrix.mtx (MX)`**:
-        *   **Función:** Botón para subir el archivo de matriz de cuentas (formato `matrix.mtx` o `matrix.mtx.gz`). Contiene los valores de expresión crudos.
-        *   **Uso:** Haz clic en "Browse files" y selecciona el archivo `.mtx` o `.mtx.gz` correspondiente a esta muestra.
-    *   **`Features.tsv (MX)`**:
-        *   **Función:** Botón para subir el archivo de características/genes (formato `features.tsv`, `genes.tsv`, o sus versiones `.gz`). Contiene los IDs y nombres de los genes.
-        *   **Uso:** Haz clic en "Browse files" y selecciona el archivo `.tsv` o `.tsv.gz` (con los nombres de los genes) correspondiente a esta muestra.
-    *   **`Barcodes.tsv (MX)`**:
-        *   **Función:** Botón para subir el archivo de códigos de barras celulares (formato `barcodes.tsv` o `barcodes.tsv.gz`). Contiene los identificadores de cada célula.
-        *   **Uso:** Haz clic en "Browse files" y selecciona el archivo `.tsv` o `.tsv.gz` (con los códigos de barras de las células) correspondiente a esta muestra.
+    *   **`Matrix (.mtx/.mtx.gz)`**:
+        *   **Función:** Botón para subir el archivo de matriz de cuentas.
+        *   **Uso:** Selecciona el archivo `.mtx` o `.mtx.gz` correspondiente.
+    *   **`Features (.tsv/.tsv.gz)`**:
+        *   **Función:** Botón para subir el archivo de características/genes.
+        *   **Uso:** Selecciona el archivo `.tsv` o `.tsv.gz` (o `genes.tsv`/`genes.tsv.gz`) correspondiente.
+    *   **`Barcodes (.tsv/.tsv.gz)`**:
+        *   **Función:** Botón para subir el archivo de códigos de barras celulares.
+        *   **Uso:** Selecciona el archivo `.tsv` o `.tsv.gz` correspondiente.
 
 *   **Botón `Cargar y Concatenar Datos`**:
-    *   **Función:** Inicia el proceso de carga de todos los archivos especificados para cada muestra. Los datos de cada muestra se leen individualmente y luego se concatenan en un único objeto AnnData (`adata_combined_raw`). Se añade una columna `sample` a los metadatos de las células para identificar su origen.
-    *   **Uso:** Púlsalo *después* de haber seleccionado todos los archivos necesarios para todas las muestras. La aplicación mostrará un mensaje de éxito o error. Una vez cargados, podrás proceder con el pipeline de análisis.
-    *   **Nota:** Si cambias el número de muestras o los archivos después de una carga exitosa, deberás volver a pulsar este botón. Al hacerlo, se reiniciarán los resultados del pipeline anterior.
+    *   **Función:**
+        1.  **Validación de Archivos:** Antes de cargar, la aplicación realiza una validación básica del formato de los archivos subidos (ej. si el matrix.mtx parece un archivo MatrixMarket). Los resultados de la validación se muestran en un expander.
+        2.  **Carga y Concatenación:** Si todos los archivos son válidos, inicia el proceso de carga. Los datos de cada muestra se leen individualmente (conservando el nombre de muestra proporcionado) y luego se concatenan en un único objeto AnnData (`adata_raw`). La columna `adata_raw.obs['sample']` contendrá los nombres de muestra que especificaste.
+    *   **Uso:** Púlsalo *después* de haber seleccionado todos los archivos necesarios para todas las muestras.
+    *   **Nota:** Si la validación falla para alguna muestra, la carga no procederá. Deberás corregir los archivos y volver a intentarlo. Al pulsar este botón, se reiniciarán los resultados de cualquier pipeline anterior.
 
-#### 3.1.2. Sección "2. Parámetros de Pipeline Principal"
+#### 3.1.2. Sección "2. Parámetros del Pipeline"
 
-Esta sección te permite configurar los parámetros para los pasos de preprocesamiento, análisis y clustering. Los valores por defecto suelen ser un buen punto de partida, pero pueden necesitar ajustes según la naturaleza de tus datos.
+Esta sección te permite configurar los parámetros para los pasos de preprocesamiento, análisis y clustering. El orden principal de las operaciones del pipeline es: QC -> HVG -> Normalización/Log -> Escalado (de HVGs) -> PCA -> Vecinos -> UMAP -> Leiden.
 
-*   **`Mínimo genes/célula`**:
-    *   **Función:** Filtra las células que tienen un número de genes detectados (con al menos una cuenta) inferior a este umbral. Ayuda a eliminar gotas vacías o células de baja calidad.
-    *   **Rango:** 50-1000 (configurable).
-    *   **Impacto:** Un valor muy alto puede eliminar células válidas; uno muy bajo puede mantener células de mala calidad.
-*   **`Mínimo células/gen`**:
-    *   **Función:** Filtra los genes que se expresan en un número de células inferior a este umbral. Ayuda a eliminar genes raros o con ruido.
-    *   **Rango:** 1-50 (configurable).
-    *   **Impacto:** Un valor muy alto puede eliminar genes importantes expresados en subpoblaciones pequeñas.
-*   **`Prefijo genes mitocondriales`**:
-    *   **Función:** Cadena de texto utilizada para identificar los genes mitocondriales. Las células con un alto porcentaje de lecturas mitocondriales suelen ser indicativas de estrés celular o daño.
-    *   **Ejemplos:** `MT-` (para humano, ej: MT-ND1), `mt-` (para ratón, ej: mt-Nd1).
-    *   **Importancia:** Asegúrate de que este prefijo coincida con la nomenclatura de tus genes mitocondriales.
-*   **`Máx % mito`**:
-    *   **Función:** Porcentaje máximo de cuentas provenientes de genes mitocondriales permitido por célula. Las células que superen este umbral serán filtradas.
-    *   **Rango:** 1-100 (configurable).
-    *   **Impacto:** Un valor típico es entre 5% y 20%, pero puede variar según el tipo de tejido y experimento.
-*   **`Nº HVGs`**:
-    *   **Función:** Número de genes altamente variables (Highly Variable Genes) a seleccionar para los análisis posteriores como PCA y UMAP. Estos son los genes que muestran mayor variabilidad biológica entre células.
-    *   **Rango:** 500-5000 (configurable).
-    *   **Impacto:** Un número adecuado (típicamente 2000-3000) ayuda a capturar la estructura biológica sin introducir demasiado ruido.
-*   **`Nº PCs`**:
-    *   **Función:** Número de componentes principales (Principal Components) a utilizar después del PCA. Estos PCs se usan para la construcción del grafo de vecinos y, subsecuentemente, para el UMAP y el clustering.
-    *   **Rango:** 10-100 (configurable).
-    *   **Impacto:** Un número demasiado bajo puede no capturar toda la varianza biológica; uno muy alto puede incluir ruido. La elección a menudo se guía por un "elbow plot" (no implementado visualmente aquí, pero es una práctica común).
-*   **`Resolución Leiden`**:
-    *   **Función:** Parámetro del algoritmo de clustering Leiden que controla la granularidad de los clústeres.
-    *   **Rango:** 0.1-2.0 (configurable).
-    *   **Impacto:** Valores más altos tienden a producir un mayor número de clústeres más pequeños. Valores más bajos producen menos clústeres y más grandes.
-*   **`Nº marcadores/clúster`**:
-    *   **Función:** Número de genes marcadores (los más diferencialmente expresados) que se calcularán y mostrarán por cada clúster en la tabla de resultados y se usarán para el dot plot de marcadores.
-    *   **Rango:** 1-20 (configurable).
+*   **`Mínimo genes/célula`**: Filtra células con un número de genes detectados inferior a este umbral.
+*   **`Mínimo células/gen`**: Filtra genes que se expresan en un número de células inferior a este umbral.
+*   **`Prefijo genes mitocondriales`**: Cadena para identificar genes mitocondriales (ej: `MT-` para humano).
+*   **`Máx % cuentas mitocondriales`**: Porcentaje máximo de cuentas mitocondriales permitido por célula.
+*   **`Nº HVGs a seleccionar`**: Número de Genes Altamente Variables (HVGs) a seleccionar. La selección de HVGs (usando el método `seurat_v3` con `batch_key='sample'`) se realiza **antes** de la normalización global, sobre los datos de cuentas crudas post-QC.
+*   **`Nº PCs (para PCA y Vecinos)`**: Número de componentes principales a calcular con PCA y a usar para la construcción del grafo de vecinos. El valor se ajusta automáticamente si es demasiado alto para las dimensiones de los datos post-HVG. Mínimo 5 recomendado para el solver `arpack`.
+*   **`Nº Vecinos (para grafo KNN)`**: Número de vecinos a considerar al construir el grafo de Vecinos Próximos (KNN), que se usa para UMAP y Leiden. Se ajusta automáticamente si es demasiado alto para el número de células.
+*   **`Resolución Leiden`**: Parámetro del algoritmo de clustering Leiden. Valores más altos tienden a producir más clústeres.
+*   **`Nº marcadores a mostrar/clúster`**: Cuántos genes marcadores se mostrarán en la tabla de resultados.
+*   **`Backend Leiden`**: Permite elegir el backend para el algoritmo de Leiden (`igraph` o `leidenalg`). `igraph` es generalmente recomendado y es el default.
+
+*   **Subsección `Parámetros UMAP`**:
+    *   **`Calcular también UMAP 3D`**: Checkbox para opcionalmente calcular y permitir la visualización de un embedding UMAP en 3 dimensiones.
+    *   **`Inicialización UMAP`**: Método de inicialización para UMAP (`spectral`, `random`, `pca`). `'random'` es el default actual en la app por mayor estabilidad con algunas combinaciones de versiones de bibliotecas, aunque `'spectral'` es a menudo preferido.
+    *   **`Nº Vecinos UMAP (para embedding)`**: Número de vecinos que UMAP considera al construir su propia representación del grafo para el embedding. Este parámetro es específico de UMAP y puede ser diferente del "Nº Vecinos (para grafo KNN)". Controla el balance entre detalle local y estructura global en el plot UMAP.
+    *   **`Distancia Mínima UMAP`**: Controla cuán agrupados o dispersos estarán los puntos en el embedding UMAP. Valores más bajos tienden a agrupar más los puntos.
+
+*   **Subsección (Nueva) `Personalización de Plots`** (ubicada al final de la sidebar o en su propio expander):
+    *   **`Paleta de Colores (Clusters/Muestras)`**: Permite seleccionar una paleta de colores de Matplotlib/Scanpy para los plots UMAP y otros.
+    *   **`Tamaño de Puntos UMAP (aprox.)`**: Controla el tamaño de los puntos en los plots UMAP 2D generados con `sc.pl.umap`.
+    *   **`Nº genes/clúster para Heatmap Marcadores`**: Define cuántos de los top marcadores por clúster se incluirán en la visualización del heatmap.
 
 *   **Botón `Ejecutar Pipeline Principal`**:
-    *   **Función:** Inicia la secuencia completa de análisis:
-        1.  Copia los datos cargados.
-        2.  Aplicación de filtros (genes/célula, células/gen, % mito).
-        3.  Normalización de datos.
-        4.  Transformación logarítmica.
-        5.  Identificación de Genes Altamente Variables (HVGs).
-        6.  Subconjunto de datos a HVGs y escalado.
-        7.  PCA sobre los HVGs escalados.
-        8.  Cálculo de vecinos y UMAP (usando los PCs seleccionados).
-        9.  Clustering con Leiden.
-        10. Transferencia de resultados (UMAP, clusters) al AnnData completo.
-        11. Cálculo de genes marcadores para los clústeres de Leiden.
-    *   **Uso:** Púlsalo después de cargar los datos y (opcionalmente) ajustar los parámetros. Este es el paso computacionalmente más intensivo.
-    *   **Resultado:** Si tiene éxito, la variable `analysis_done` se establece a `True`, y las pestañas de resultados se llenarán con gráficos y tablas.
+    *   Inicia la secuencia completa de análisis con los parámetros configurados. Los pasos principales son:
+        1.  Control de Calidad (QC).
+        2.  Selección de HVGs (sobre datos crudos post-QC, usando `batch_key`).
+        3.  Normalización y transformación logarítmica del dataset completo.
+        4.  Creación de un subconjunto de datos conteniendo solo los HVGs (ya normalizados/log).
+        5.  Escalado de este subconjunto de HVGs.
+        6.  PCA y cálculo de Vecinos KNN (sobre el subconjunto de HVGs escalado).
+        7.  Cálculo de UMAP 2D (y opcionalmente 3D) usando la API directa de `umap-learn` sobre los PCs.
+        8.  Clustering con Leiden sobre el grafo KNN.
+        9.  Transferencia de resultados (clusters, UMAPs) al AnnData procesado completo.
+        10. Cálculo de genes marcadores.
+    *   Si tiene éxito, las pestañas de resultados se actualizan.
 
 #### 3.1.3. Sección "3. Análisis de Expresión Diferencial (DEA)"
 
@@ -220,6 +210,18 @@ Al final de la barra lateral, o distribuidos en ella, pueden aparecer otros elem
 *   **Información de la App:**
     *   Al final de la sidebar, se muestra la versión de la aplicación (ej: `App scRNA-seq v0.4`).
 
+#### 3.1.5. Sección "Guardar/Cargar Configuración"
+
+Esta sección permite guardar y cargar los parámetros de configuración del pipeline para facilitar la reproducibilidad y la aplicación de configuraciones consistentes a diferentes análisis.
+
+*   **Botón `Guardar Configuración Actual`**:
+    *   Al pulsarlo, se genera un archivo JSON que contiene los valores actuales de todos los parámetros configurables en la sidebar (excepto los datos AnnData en sí mismos y los archivos subidos).
+    *   Se ofrece un botón para descargar este archivo `scRNAseq_app_params_[fecha].json`.
+*   **`Cargar Configuración (.json)`**:
+    *   Permite subir un archivo JSON previamente guardado.
+    *   Si el archivo es válido, los parámetros en la sidebar se actualizarán con los valores del archivo.
+    *   Es útil para restaurar una configuración de análisis anterior o para compartir parámetros.
+
 ### 3.2. Sección de Resultados (Panel Principal)
 
 Una vez que el "Pipeline Principal" ha sido ejecutado, el panel principal de la aplicación, a la derecha de la barra lateral, se activa y muestra los resultados organizados en varias pestañas. En la parte superior de esta sección, siempre visible, se encuentra el "Explorador de Expresión Génica".
@@ -279,7 +281,19 @@ Esta pestaña muestra información sobre los genes que son característicos de c
     *   Este gráfico es muy útil para visualizar patrones de expresión y confirmar la especificidad de los marcadores.
     *   **Descarga:** Botón "Dot Plot Marcadores (PNG)" para descargar la imagen.
 
-#### 3.2.4. Pestaña: "🧬 QC Plots"
+#### 3.2.4. Pestaña: "🔥 Heatmap Marcadores"
+
+Esta pestaña visualiza la expresión de los genes marcadores más importantes a través de los clústeres de Leiden en forma de heatmap.
+
+*   **`Heatmap de Top X Genes Marcadores por Clúster`**:
+    *   **Visualización:** Un heatmap donde las filas suelen ser genes y las columnas son células (agrupadas y promediadas por clúster, o mostrando células individuales). El color indica el nivel de expresión.
+    *   **Selección de Genes:** Utiliza los "Nº genes/clúster para Heatmap Marcadores" definidos en la sidebar para seleccionar los N mejores marcadores de cada clúster.
+    *   **Dendrograma:** Si se calcula con éxito (basándose en `X_pca_hvg`), se muestra un dendrograma que agrupa los clústeres según la similitud de su perfil de expresión para los genes mostrados.
+    *   **Escalado:** La expresión suele estar escalada por gen (Z-score) para resaltar patrones relativos.
+    *   **Interpretación:** Ayuda a ver patrones de co-expresión y la especificidad de los marcadores de forma visual.
+    *   **Descarga:** Botón para descargar el heatmap como imagen PNG.
+    *   
+#### 3.2.5. Pestaña: "🧬 QC Plots"
 
 Esta pestaña muestra gráficos de control de calidad (Quality Control) que resumen métricas importantes sobre las células, agrupadas por la muestra original. Estos gráficos se generan sobre los datos *después* del filtrado inicial.
 
@@ -291,7 +305,7 @@ Esta pestaña muestra gráficos de control de calidad (Quality Control) que resu
     *   **Interpretación:** Estos gráficos permiten comparar la calidad de las células entre diferentes muestras. Diferencias grandes podrían indicar problemas técnicos en alguna muestra o diferencias biológicas intrínsecas. Por ejemplo, después del filtrado, se espera que los porcentajes mitocondriales sean bajos y relativamente homogéneos.
     *   **Descarga:** Cada gráfico de violín tiene su propio botón de descarga "Descargar [NombreMétrica] (PNG)".
 
-#### 3.2.5. Pestaña: "📈 Análisis Diferencial"
+#### 3.2.6. Pestaña: "📈 Análisis Diferencial"
 
 Esta pestaña muestra los resultados del Análisis de Expresión Diferencial (DEA) si se ha ejecutado desde la barra lateral.
 
@@ -322,7 +336,7 @@ Esta pestaña muestra los resultados del Análisis de Expresión Diferencial (DE
         *   Al pasar el ratón sobre un punto, se muestra información adicional del gen.
     *   **Descarga:** Botón "Volcano Plot (HTML)" para descargar el gráfico interactivo como un archivo HTML independiente.
 
-#### 3.2.6. Pestaña: "🧬 Explorador Genes"
+#### 3.2.7. Pestaña: "🧬 Explorador Genes"
 
 Esta pestaña muestra visualizaciones específicas para los genes que has introducido en el campo "🔬 Explorador de Expresión Génica" en la parte superior del panel de resultados.
 
