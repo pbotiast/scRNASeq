@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Streamlit app para análisis interactivo de datos de Single-Cell RNA-seq con múltiples muestras.
-Permite cargar datos 10x, realizar QC, normalización, PCA, UMAP, clustering, DEA y explorar genes.
-Versión mejorada con optimización de memoria, manejo de errores y UX mejorada,
-incluyendo UMAP 3D, personalización de plots y guardado/carga de parámetros.
+Permite cargar datos 10x, realizar QC, normalización, PCA, UMAP, clustering, DEA, explorar genes,
+gene scoring y visualización de varianza PCA.
 """
 import streamlit as st
 import scanpy as sc
@@ -22,7 +21,7 @@ import gzip
 from scipy import sparse
 from scipy.stats import zscore 
 import json 
-import markdown
+# import markdown # Descomentar si usas la función de reporte HTML con markdown
 
 # Configuración de la página
 st.set_page_config(layout="wide", initial_sidebar_state="expanded")
@@ -112,11 +111,19 @@ default_values = {
     "analysis_done": False, "marker_genes_df": None, "condition_assignments": {},
     "dea_group1": None, "dea_group2": None, "dea_cluster_scope": "Todos los Clústeres",
     "dea_n_genes_display": 25, "dea_lfc_cutoff": 0.5, "dea_pval_cutoff": 0.05,
-    "dea_results_df": None, "dea_comparison_str": "", "gene_explorer_input": "",
-    "leiden_flavor": "igraph", 
-    "umap_init_pos": "random", "umap_n_neighbors": 15, "umap_min_dist": 0.5, "calc_umap_3d": False,
-    "plot_palette": "viridis", "plot_point_size": 20, 
-    "heatmap_top_n_genes": 3 
+    "dea_results_df": None, "dea_comparison_str": "", 
+    "gene_explorer_input": "",                  
+    "gene_score_list_input": "",                
+    "gene_score_name_input": "Custom_Gene_Score",       
+    "leiden_flavor": "igraph",                  
+    "umap_init_pos": "random",                  
+    "umap_n_neighbors": 15,                     
+    "umap_min_dist": 0.5,                       
+    "calc_umap_3d": False,                      
+    "plot_palette": "viridis",                  
+    "plot_point_size": 20,                      
+    "heatmap_top_n_genes": 3,                   
+    "show_pca_variance": True                   
 }
 for key, value in default_values.items():
     if key not in st.session_state:
@@ -124,11 +131,11 @@ for key, value in default_values.items():
 
 # --- Sidebar ---
 with st.sidebar:
-    st.image("https://www.biogenouest.org/wp-content/uploads/2020/02/Logo-ScanPy-195x150.png", width=100) 
+    st.image("https://raw.githubusercontent.com/pbotiast/scRNASeq/refs/heads/main/scanpy_logo.png", width=200)  # Cambia la URL a tu logo
     st.header("Configuración del Análisis")
     
     with st.expander("Guardar/Cargar Configuración", expanded=False):
-        if st.button("Guardar Configuración Actual", key="save_params_btn_sidebar"):
+        if st.button("Guardar Configuración Actual", key="save_params_btn_sidebar_v3"): 
             params_to_save = {k: st.session_state[k] for k in default_values if not k.startswith("adata") and k != "sample_files"} 
             params_to_save.pop("analysis_done", None) 
             params_to_save.pop("marker_genes_df", None)
@@ -136,83 +143,70 @@ with st.sidebar:
             
             params_json = json.dumps(params_to_save, indent=4)
             st.download_button(
-                label="Descargar archivo de parámetros (.json)",
-                data=params_json,
+                label="Descargar archivo de parámetros (.json)", data=params_json,
                 file_name=f"scRNAseq_app_params_{pd.Timestamp.now().strftime('%Y%m%d')}.json",
-                mime="application/json",
-                key="download_params_json_sidebar_btn"
+                mime="application/json", key="download_params_json_sidebar_btn_v3" 
             )
-
-        uploaded_params_file_sidebar = st.file_uploader("Cargar Configuración (.json)", type="json", key="upload_params_sidebar")
+        uploaded_params_file_sidebar = st.file_uploader("Cargar Configuración (.json)", type="json", key="upload_params_sidebar_v3") 
         if uploaded_params_file_sidebar is not None:
             try:
                 loaded_params = json.load(uploaded_params_file_sidebar)
                 for key, value_loaded in loaded_params.items():
-                    if key in st.session_state:
-                        st.session_state[key] = value_loaded
-                st.success("Parámetros cargados. La interfaz se ha actualizado.")
-                st.info("Por favor, revisa los parámetros y vuelve a ejecutar el pipeline si es necesario.")
-            except Exception as e_load_params_sidebar:
-                st.error(f"Error al cargar parámetros: {e_load_params_sidebar}")
+                    if key in st.session_state: st.session_state[key] = value_loaded
+                st.success("Parámetros cargados.")
+                st.info("Revisa los parámetros y vuelve a ejecutar el pipeline si es necesario.")
+            except Exception as e_load_params_sidebar: st.error(f"Error al cargar parámetros: {e_load_params_sidebar}")
 
     with st.expander("1. Carga de Datos", expanded=True):
         st.session_state.num_samples = st.number_input(
-            "Número de muestras", min_value=1, max_value=10, value=st.session_state.num_samples, step=1, key="num_samples_main"
+            "Número de muestras", min_value=1, max_value=10, value=st.session_state.num_samples, step=1, key="num_samples_main_v3" # Key actualizada
         )
         for i in range(st.session_state.num_samples):
-            sample_widget_key_prefix = f"sample_{i}"
+            sample_widget_key_prefix = f"sample_{i}_v3" 
             st.subheader(f"Muestra {i+1}")
-            
             s_name_key = f"sample_name_{i}"
-            if s_name_key not in st.session_state.sample_files:
-                 st.session_state.sample_files[s_name_key] = f"Muestra{i+1}"
-
-            st.session_state.sample_files[s_name_key] = st.text_input(
-                f"Nombre Muestra {i+1}", value=st.session_state.sample_files[s_name_key], key=f"{sample_widget_key_prefix}_name"
-            )
-            for file_type_key, label in zip(["matrix_file", "features_file", "barcodes_file"], 
-                                            ["Matrix (.mtx/.mtx.gz)", "Features (.tsv/.tsv.gz)", "Barcodes (.tsv/.tsv.gz)"]):
+            if s_name_key not in st.session_state.sample_files: st.session_state.sample_files[s_name_key] = f"Muestra{i+1}"
+            st.session_state.sample_files[s_name_key] = st.text_input(f"Nombre Muestra {i+1}", value=st.session_state.sample_files[s_name_key], key=f"{sample_widget_key_prefix}_name")
+            for file_type_key, label in zip(["matrix_file", "features_file", "barcodes_file"],["Matrix (.mtx/.mtx.gz)", "Features (.tsv/.tsv.gz)", "Barcodes (.tsv/.tsv.gz)"]):
                 full_key = f"{file_type_key}_{i}"
-                if full_key not in st.session_state.sample_files:
-                    st.session_state.sample_files[full_key] = None
-                st.session_state.sample_files[full_key] = st.file_uploader(
-                    f"{label}", type=["mtx", "tsv", "gz"], key=f"{sample_widget_key_prefix}_{file_type_key}"
-                )
-            if i < st.session_state.num_samples - 1:
-                st.markdown("---")
+                if full_key not in st.session_state.sample_files: st.session_state.sample_files[full_key] = None
+                st.session_state.sample_files[full_key] = st.file_uploader(f"{label}", type=["mtx", "tsv", "gz"], key=f"{sample_widget_key_prefix}_{file_type_key}")
+            if i < st.session_state.num_samples - 1: st.markdown("---")
 
     with st.expander("2. Parámetros del Pipeline"):
-        st.session_state.min_genes = st.slider("Mínimo genes/célula", 50, 1000, st.session_state.min_genes, key="min_genes_slider", help="Filtra células con menos de N genes detectados.")
-        st.session_state.min_cells = st.slider("Mínimo células/gen", 1, 50, st.session_state.min_cells, key="min_cells_slider", help="Filtra genes detectados en menos de N células.")
-        st.session_state.mito_prefix = st.text_input("Prefijo genes mitocondriales", st.session_state.mito_prefix, key="mito_prefix_input", help="Ej: 'MT-' para humano, 'mt-' para ratón.")
-        st.session_state.max_mito_pct = st.slider("Máx % cuentas mitocondriales", 1, 100, st.session_state.max_mito_pct, key="max_mito_slider", help="Filtra células con alto % de cuentas mitocondriales.")
-        st.session_state.n_top_genes_hvg = st.slider("Nº HVGs a seleccionar", 500, 5000, st.session_state.n_top_genes_hvg, key="n_hvg_slider")
-        st.session_state.n_pcs = st.slider("Nº PCs (para PCA y Vecinos)", 5, 100, st.session_state.n_pcs, key="n_pcs_slider", help="Mínimo 5 recomendado para 'arpack'.")
-        st.session_state.n_neighbors_val = st.slider("Nº Vecinos (para grafo KNN)", 2, 50, st.session_state.n_neighbors_val, key="n_neighbors_slider", help="Usado para construir el grafo de vecinos para UMAP y Leiden.")
-        st.session_state.leiden_res = st.slider("Resolución Leiden", 0.1, 2.5, st.session_state.leiden_res, 0.1, key="leiden_res_slider", help="Mayor resolución = más clústeres.")
-        st.session_state.n_top_markers = st.slider("Nº marcadores a mostrar/clúster", 1, 25, st.session_state.n_top_markers, key="n_markers_slider")
+        st.session_state.min_genes = st.slider("Mínimo genes/célula", 50, 1000, st.session_state.min_genes, key="min_genes_slider_v3", help="Filtra células con menos de N genes detectados.")
+        st.session_state.min_cells = st.slider("Mínimo células/gen", 1, 50, st.session_state.min_cells, key="min_cells_slider_v3", help="Filtra genes detectados en menos de N células.")
+        st.session_state.mito_prefix = st.text_input("Prefijo genes mitocondriales", st.session_state.mito_prefix, key="mito_prefix_input_v3", help="Ej: 'MT-' para humano, 'mt-' para ratón.")
+        st.session_state.max_mito_pct = st.slider("Máx % cuentas mitocondriales", 1, 100, st.session_state.max_mito_pct, key="max_mito_slider_v3", help="Filtra células con alto % de cuentas mitocondriales.")
+        st.session_state.n_top_genes_hvg = st.slider("Nº HVGs a seleccionar", 500, 5000, st.session_state.n_top_genes_hvg, key="n_hvg_slider_v3")
+        st.session_state.n_pcs = st.slider("Nº PCs (para PCA y Vecinos)", 5, 100, st.session_state.n_pcs, key="n_pcs_slider_v3", help="Mínimo 5 recomendado para 'arpack'.")
+        st.session_state.n_neighbors_val = st.slider("Nº Vecinos (para grafo KNN)", 2, 50, st.session_state.n_neighbors_val, key="n_neighbors_slider_v3", help="Usado para construir el grafo de vecinos para UMAP y Leiden.")
+        st.session_state.leiden_res = st.slider("Resolución Leiden", 0.1, 2.5, st.session_state.leiden_res, 0.1, key="leiden_res_slider_v3", help="Mayor resolución = más clústeres.")
+        st.session_state.n_top_markers = st.slider("Nº marcadores a mostrar/clúster", 1, 25, st.session_state.n_top_markers, key="n_markers_slider_v3")
         
-        leiden_flavors_list = ["igraph", "leidenalg"]
-        st.session_state.leiden_flavor = st.selectbox("Backend Leiden", leiden_flavors_list, 
-                                                      index=leiden_flavors_list.index(st.session_state.leiden_flavor) if st.session_state.leiden_flavor in leiden_flavors_list else 0, 
-                                                      key="leiden_flavor_select", help="'igraph' es generalmente recomendado.")
+        leiden_flavors_list_sb = ["igraph", "leidenalg"] # Nombre diferente para evitar conflicto de variable
+        st.session_state.leiden_flavor = st.selectbox("Backend Leiden", leiden_flavors_list_sb, 
+                                                      index=leiden_flavors_list_sb.index(st.session_state.leiden_flavor) if st.session_state.leiden_flavor in leiden_flavors_list_sb else 0, 
+                                                      key="leiden_flavor_select_v3", help="'igraph' es generalmente recomendado.")
         
         st.subheader("Parámetros UMAP")
-        st.session_state.calc_umap_3d = st.checkbox("Calcular también UMAP 3D", value=st.session_state.calc_umap_3d, key="calc_3d_umap_check")
-        umap_init_options_list = ["spectral", "random", "pca"]
-        st.session_state.umap_init_pos = st.selectbox("Inicialización UMAP", umap_init_options_list, 
-                                                      index=umap_init_options_list.index(st.session_state.umap_init_pos) if st.session_state.umap_init_pos in umap_init_options_list else 1, 
-                                                      key="umap_init_select", help="'random' puede ser más estable con algunas versiones de NumPy.")
-        st.session_state.umap_n_neighbors = st.slider("Nº Vecinos UMAP (para embedding)", 2, 200, st.session_state.umap_n_neighbors, key="umap_n_neighbors_slider", help="Controla el balance entre estructura local y global en UMAP.")
-        st.session_state.umap_min_dist = st.slider("Distancia Mínima UMAP", 0.0, 1.0, st.session_state.umap_min_dist, 0.01, key="umap_min_dist_slider", help="Controla cuán agrupados estarán los puntos en UMAP.")
+        st.session_state.calc_umap_3d = st.checkbox("Calcular también UMAP 3D", value=st.session_state.calc_umap_3d, key="calc_3d_umap_check_v3")
+        umap_init_options_list_sb = ["spectral", "random", "pca"] # Nombre diferente
+        st.session_state.umap_init_pos = st.selectbox("Inicialización UMAP", umap_init_options_list_sb, 
+                                                      index=umap_init_options_list_sb.index(st.session_state.umap_init_pos) if st.session_state.umap_init_pos in umap_init_options_list_sb else 1, 
+                                                      key="umap_init_select_v3", help="'random' puede ser más estable con algunas versiones de NumPy.")
+        st.session_state.umap_n_neighbors = st.slider("Nº Vecinos UMAP (para embedding)", 2, 200, st.session_state.umap_n_neighbors, key="umap_n_neighbors_slider_v3", help="Controla el balance entre estructura local y global en UMAP.")
+        st.session_state.umap_min_dist = st.slider("Distancia Mínima UMAP", 0.0, 1.0, st.session_state.umap_min_dist, 0.01, key="umap_min_dist_slider_v3", help="Controla cuán agrupados estarán los puntos en UMAP.")
 
     with st.expander("Personalización de Plots", expanded=False):
-        palettes_options = ["tab10", "tab20", "Set3", "Paired", "viridis", "plasma", "magma", "cividis"]
-        st.session_state.plot_palette = st.selectbox("Paleta de Colores (Clusters/Muestras)", palettes_options, 
-                                                     index=palettes_options.index(st.session_state.plot_palette) if st.session_state.plot_palette in palettes_options else 0,
-                                                     key="plot_palette_select")
-        st.session_state.plot_point_size = st.slider("Tamaño de Puntos UMAP (aprox.)", 10, 150, st.session_state.plot_point_size, 5, key="plot_point_size_slider", help="Valor de 's' para sc.pl.umap (multiplicado por un factor).")
-        st.session_state.heatmap_top_n_genes = st.slider("Nº genes/clúster para Heatmap Marcadores", 1, 10, st.session_state.heatmap_top_n_genes, key="heatmap_genes_slider")
+        palettes_options_sb = ["tab10", "tab20", "Set3", "Paired", "viridis", "plasma", "magma", "cividis", "default"] # Nombre diferente
+        st.session_state.plot_palette = st.selectbox("Paleta de Colores UMAP/Heatmap", palettes_options_sb, 
+                                                     index=palettes_options_sb.index(st.session_state.plot_palette) if st.session_state.plot_palette in palettes_options_sb else 0,
+                                                     key="plot_palette_select_v3")
+        st.session_state.plot_point_size = st.slider("Tamaño Puntos UMAP 2D", 10, 150, st.session_state.plot_point_size, 5, key="plot_point_size_slider_v3", help="Valor de 's' para sc.pl.umap (multiplicado por un factor).")
+        st.session_state.heatmap_top_n_genes = st.slider("Nº genes/clúster para Heatmap", 1, 10, st.session_state.heatmap_top_n_genes, key="heatmap_genes_slider_v3") # Renombrado
+        st.session_state.show_pca_variance = st.checkbox("Mostrar Varianza PCA en Info", value=st.session_state.show_pca_variance, key="show_pca_var_check") # NUEVO
+
 
     if st.session_state.analysis_done and st.session_state.adata_processed is not None:
         with st.expander("3. Análisis Diferencial (DEA)"):
@@ -260,6 +254,7 @@ with st.sidebar:
                 adata_for_dea_preview.obs['condition_temp_dea'] = adata_for_dea_preview.obs['sample'].map(st.session_state.condition_assignments)
                 
                 valid_cells_for_preview = adata_for_dea_preview.obs['condition_temp_dea'].notna()
+                
                 if valid_cells_for_preview.any():
                     counts_df = adata_for_dea_preview[valid_cells_for_preview].obs.groupby(['condition_temp_dea', 'leiden_clusters'], observed=True).size().unstack(fill_value=0)
                     st.write("**Conteos de Células por Condición y Clúster (para condiciones asignadas):**")
@@ -319,13 +314,11 @@ with st.sidebar:
             if not (st.session_state.sample_files.get(f"matrix_file_{i}") and \
                     st.session_state.sample_files.get(f"features_file_{i}") and \
                     st.session_state.sample_files.get(f"barcodes_file_{i}")):
-                all_files_provided = False
-                break
-    else:
-        all_files_provided = False
+                all_files_provided = False; break
+    else: all_files_provided = False
 
     if all_files_provided:
-        if st.button("Cargar y Concatenar Datos", key="load_concat_btn_main", type="primary"):
+        if st.button("Cargar y Concatenar Datos", key="load_concat_btn_main_v3", type="primary"):
             validation_messages = []
             all_valid_globally = True
             for i in range(st.session_state.num_samples):
@@ -385,7 +378,8 @@ with st.sidebar:
         st.warning("Por favor, sube todos los archivos para cada muestra para habilitar la carga.")
 
     if st.session_state.adata_raw is not None:
-        if st.button("Ejecutar Pipeline Principal", key="run_pipeline_btn_main_v2", type="primary"):
+        if st.button("Ejecutar Pipeline Principal", key="run_pipeline_btn_main_v4", type="primary"):
+            # --- COMIENZO DEL PIPELINE PRINCIPAL ---
             adata = st.session_state.adata_raw.copy() 
             st.session_state.adata_hvg_subset = None 
             
@@ -579,41 +573,28 @@ with st.sidebar:
                             if not key_to_reset.startswith("adata") and key_to_reset not in ["sample_files", "num_samples", "analysis_done"]:
                                 st.session_state[key_to_reset] = default_values[key_to_reset]
 
+            # --- FIN DEL PIPELINE PRINCIPAL ---
+    # --- FIN SIDEBAR ---
+
 # --- Sección de Resultados ---
-st.markdown("---")
+st.markdown("---") 
 st.header("Resultados del Análisis")
+
 st.subheader("🔬 Explorador de Expresión Génica")
 st.session_state.gene_explorer_input = st.text_area(
     "Ingresa nombres de genes (separados por coma, espacio o nueva línea):", 
     value=st.session_state.gene_explorer_input, 
-    key="gene_explorer_main_input_v3", 
-    height=100
+    key="gene_explorer_main_input_v4", 
+    height=100,
+    help="Escribe los nombres de los genes que deseas visualizar en UMAPs, violines y dot plots."
 )
 
 if st.session_state.analysis_done and st.session_state.adata_processed is not None:
     adata_display = st.session_state.adata_processed 
-    
     valid_genes_lower_map_display = {g.lower(): g for g in adata_display.var_names}
 
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".h5ad") as tmp_h5ad_file:
-            filepath_h5ad = tmp_h5ad_file.name
-        adata_display.write_h5ad(filepath_h5ad)
-
-        with open(filepath_h5ad, "rb") as f_h5ad_read:
-            st.sidebar.download_button(
-                "Descargar AnnData Procesado (.h5ad)", 
-                f_h5ad_read.read(), 
-                f"processed_adata_scRNAseq_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.h5ad",
-                "application/octet-stream",
-                key="download_adata_button_sidebar_v2" 
-            )
-        os.remove(filepath_h5ad) 
-    except Exception as e_dl_sidebar: 
-        st.sidebar.error(f"Error descarga AnnData: {e_dl_sidebar}")
-        if 'filepath_h5ad' in locals() and os.path.exists(filepath_h5ad):
-            try: os.remove(filepath_h5ad)
-            except: pass
+    # Botón de descarga de AnnData (movido a la sidebar anteriormente, pero podría estar aquí también)
+    # ... 
 
     genes_input_list_raw = [g.strip() for g in st.session_state.gene_explorer_input.replace(',', ' ').replace('\n', ' ').split() if g.strip()]
     genes_to_visualize_list = []
@@ -634,12 +615,14 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
             warning_msg += f" Sugerencias: {'; '.join(suggestions_str_list)}"
         st.warning(warning_msg)
 
-    tab_titles_main = ["📊 UMAPs", "🔬 Marcadores", "🔥 Heatmap Marcadores", "🧬 QC", "📈 DEA", "🧬 Explorador Genes", "ℹ️ Info"]
-    tab_umaps, tab_markers, tab_heatmap, tab_qc, tab_dea, tab_gene_explorer, tab_info = st.tabs(tab_titles_main)
+    tab_titles_results = ["📊 UMAPs", "🔬 Marcadores", "🔥 Heatmap Marcadores", "🎯 Gene Scoring", "🧬 QC", "📈 DEA", "🧬 Explorador Genes", "ℹ️ Info"]
+    tabs_results = st.tabs(tab_titles_results)
     
-    sc.set_figure_params(vector_friendly=True, format='png', dpi_save=300, color_map=st.session_state.plot_palette)
+    tab_umaps_res, tab_markers_res, tab_heatmap_res, tab_gene_scoring_res, tab_qc_res, tab_dea_res, tab_gene_explorer_res, tab_info_res = tabs_results
+    
+    # sc.set_figure_params(...) # Mejor pasar 'palette' individualmente
 
-    with tab_umaps:
+    with tab_umaps_res:
         if 'X_umap' not in adata_display.obsm:
             st.warning("UMAP 2D no calculado o falló.")
         else:
@@ -710,13 +693,21 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
                         plt.close(fig_facet)
                 except Exception as e_facet: st.error(f"Error UMAPs facetados: {e_facet}")
 
-    with tab_markers:
+
+    with tab_markers_res:
+        st.subheader(f"Top {st.session_state.n_top_markers} Genes Marcadores por Clúster")
         if st.session_state.marker_genes_df is not None and not st.session_state.marker_genes_df.empty:
-            st.subheader(f"Top {st.session_state.n_top_markers} Genes Marcadores por Clúster")
-            st.dataframe(st.session_state.marker_genes_df)
+            # Usar st.data_editor
+            st.data_editor(
+                st.session_state.marker_genes_df, 
+                height=400, 
+                use_container_width=True, 
+                num_rows="dynamic", # Permite al usuario ver más o menos filas
+                key="marker_genes_data_editor"
+            )
             st.download_button(
                 "Descargar Marcadores (CSV)", st.session_state.marker_genes_df.to_csv(index=False).encode('utf-8'),
-                "cluster_markers.csv", "text/csv", key="dl_markers_v3"
+                "cluster_markers.csv", "text/csv", key="dl_markers_v4" # Key nueva
             )
             
             st.subheader("Dot Plot de Genes Marcadores")
@@ -744,10 +735,10 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
                     except Exception as e_dot_m: st.error(f"Error dot plot marcadores: {e_dot_m}")
                 else: st.info("No hay genes marcadores para el dot plot o faltan clusters.")
             else: st.info("Columnas requeridas no encontradas para dot plot de marcadores.")
-        else: st.info("No se han calculado genes marcadores.")
+        else:
+            st.info("No se han calculado genes marcadores o la tabla está vacía.")
 
-
-    with tab_heatmap: # Nueva pestaña para Heatmap de Marcadores
+    with tab_heatmap_res:
             st.subheader(f"Heatmap de Top {st.session_state.heatmap_top_n_genes} Genes Marcadores por Clúster")
             if st.session_state.marker_genes_df is not None and not st.session_state.marker_genes_df.empty:
                 heatmap_genes_list = []
@@ -869,8 +860,95 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
                 st.info("No se han calculado genes marcadores.")
     
 
-    with tab_qc:
-        # ... (código de QC como lo tenías, usando adata_display) ...
+    with tab_gene_scoring_res: # Nueva pestaña
+        st.subheader("Análisis de Scoring de Listas de Genes")
+        st.write("Calcula un score agregado para una lista de genes en cada célula, útil para evaluar firmas génicas.")
+        
+        st.session_state.gene_score_list_input = st.text_area(
+            "Lista de Genes para Scoring (un gen por línea o separados por coma/espacio):", 
+            value=st.session_state.gene_score_list_input, 
+            height=150, 
+            key="gene_score_list_ta_v2" # Key nueva
+        )
+        st.session_state.gene_score_name_input = st.text_input(
+            "Nombre para la columna del Score (ej: LinfocitosT_Score):", 
+            value=st.session_state.gene_score_name_input,
+            key="gene_score_name_ti_v2" # Key nueva
+        )
+
+        if st.button("Calcular y Visualizar Score de Genes", key="calc_gene_score_btn_v2"): # Key nueva
+            score_name_to_calc = st.session_state.gene_score_name_input.strip()
+            if not st.session_state.gene_score_list_input.strip() or not score_name_to_calc:
+                st.error("Por favor, ingresa una lista de genes y un nombre válido para el score.")
+            else:
+                genes_for_scoring_raw_gs = [g.strip() for g in st.session_state.gene_score_list_input.replace(',', ' ').replace('\n', ' ').split() if g.strip()]
+                genes_for_scoring_valid_gs = []
+                genes_for_scoring_not_found_gs = []
+                for g_score_gs in genes_for_scoring_raw_gs:
+                    g_score_lower_gs = g_score_gs.lower()
+                    if g_score_lower_gs in valid_genes_lower_map_display:
+                        genes_for_scoring_valid_gs.append(valid_genes_lower_map_display[g_score_lower_gs])
+                    else:
+                        genes_for_scoring_not_found_gs.append(g_score_gs)
+                
+                if genes_for_scoring_not_found_gs:
+                    st.warning(f"Genes para scoring no encontrados: {', '.join(genes_for_scoring_not_found_gs)}")
+                
+                if not genes_for_scoring_valid_gs:
+                    st.error("Ninguno de los genes para scoring se encontró en el dataset.")
+                else:
+                    with st.spinner(f"Calculando score '{score_name_to_calc}'..."):
+                        try:
+                            # IMPORTANTE: score_genes modifica el AnnData. Usar una copia para visualización o
+                            # ser consciente de que se añade a st.session_state.adata_processed.
+                            # Si se añade a adata_processed, estará disponible para otros plots.
+                            sc.tl.score_genes(st.session_state.adata_processed, # Modifica el AnnData procesado en session_state
+                                              gene_list=genes_for_scoring_valid_gs, 
+                                              score_name=score_name_to_calc, 
+                                              random_state=0, use_raw=False) # use_raw=False si los datos en .X son normalizados/log
+                            st.success(f"Score '{score_name_to_calc}' calculado y añadido a `adata.obs`.")
+                            # Forzar un rerun para que las visualizaciones se actualicen con el nuevo score
+                            st.rerun() # <--- CAMBIO AQUÍ
+                        except Exception as e_score_gs:
+                            st.error(f"Error calculando score de genes: {e_score_gs}")
+                            st.error(traceback.format_exc())
+        
+        # Visualización del último score calculado (o el que esté en el input name)
+        score_col_name_display = st.session_state.gene_score_name_input.strip()
+        if score_col_name_display and score_col_name_display in adata_display.obs.columns:
+            st.markdown(f"#### Visualización del Score: **{score_col_name_display}**")
+            
+            col_score_viz1, col_score_viz2 = st.columns(2)
+            with col_score_viz1:
+                if 'X_umap' in adata_display.obsm:
+                    st.markdown("##### Score en UMAP 2D")
+                    fig_s_u2d, ax_s_u2d = plt.subplots()
+                    sc.pl.umap(adata_display, color=score_col_name_display, ax=ax_s_u2d, show=False, 
+                               cmap='viridis', size=st.session_state.plot_point_size,
+                               title=f"Score: {score_col_name_display}", palette=st.session_state.plot_palette)
+                    st.pyplot(fig_s_u2d)
+                    plt.close(fig_s_u2d)
+            
+            with col_score_viz2:
+                if 'leiden_clusters' in adata_display.obs:
+                    st.markdown("##### Score en Violín por Clúster")
+                    fig_s_vln, ax_s_vln = plt.subplots()
+                    sc.pl.violin(adata_display, keys=score_col_name_display, groupby='leiden_clusters', rotation=45, 
+                                 ax=ax_s_vln, show=False, use_raw=False, cut=0)
+                    plt.tight_layout(); st.pyplot(fig_s_vln)
+                    plt.close(fig_s_vln)
+
+            if st.session_state.calc_umap_3d and 'X_umap_3d' in adata_display.obsm:
+                st.markdown("##### Score en UMAP 3D")
+                # ... (código para plot UMAP 3D del score, similar al de la pestaña UMAPs)
+                pass
+
+
+        elif st.session_state.gene_score_list_input.strip() and st.session_state.gene_score_name_input.strip():
+            st.info(f"El score '{score_col_name_display}' no se encuentra en los datos. Calcúlalo primero.")
+
+
+    with tab_qc_res:
         st.subheader("Plots de Control de Calidad (Post-Filtrado)")
         if 'sample' in adata_display.obs:
             qc_metrics_list = ['n_genes_by_counts', 'total_counts', 'pct_counts_mt']
@@ -889,14 +967,13 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
                 else: st.warning(f"Métrica QC '{metric_key}' no encontrada.")
         else: st.warning("Columna 'sample' no encontrada para plots de QC.")
 
-
-    with tab_dea:
-        # ... (código de DEA como lo tenías, usando adata_display si es necesario para alguna configuración, pero el DEA en sí usa adata_for_dea_preview) ...
+    with tab_dea_res:
         st.subheader("Resultados del Análisis de Expresión Diferencial")
         if st.session_state.dea_results_df is not None and not st.session_state.dea_results_df.empty:
             st.markdown(f"**Comparación Actual:** `{st.session_state.dea_comparison_str}`")
-            st.dataframe(st.session_state.dea_results_df.head(st.session_state.dea_n_genes_display))
-            
+            # Usar st.data_editor
+            st.data_editor(st.session_state.dea_results_df.head(st.session_state.dea_n_genes_display),
+                           height=400, use_container_width=True, num_rows="dynamic", key="dea_results_data_editor")
             csv_dea_filename_safe = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in st.session_state.dea_comparison_str).rstrip()
             csv_dea_filename = f"dea_results_{csv_dea_filename_safe.replace(' vs ','_vs_').replace(' ','_')}.csv"
             st.download_button(
@@ -938,76 +1015,161 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
         elif st.session_state.analysis_done:
             st.info("No hay resultados de DEA para mostrar. Ejecuta el Análisis Diferencial.")
 
-    with tab_gene_explorer:
-        # ... (código del explorador de genes como lo tenías, usando adata_display) ...
+
+
+    with tab_gene_explorer_res: # Asegúrate de que esta es la variable correcta para tu pestaña
         st.subheader("Visualización de Expresión para Genes Específicos")
-        if not genes_to_visualize_list:
-            st.info("Ingresa nombres de genes válidos para visualizarlos.")
+        
+        # 'genes_to_visualize_list' se define unas líneas más arriba en tu script, 
+        # después de procesar st.session_state.gene_explorer_input.
+        # Usaremos esa variable consistentemente aquí.
+
+        if not genes_to_visualize_list: # Usar la variable correcta
+            st.info("Ingresa nombres de genes válidos en el campo de texto de arriba para visualizarlos.")
         else:
-            st.write(f"Mostrando expresión para: **{', '.join(genes_to_visualize_list)}**")
+            st.write(f"Mostrando expresión para: **{', '.join(genes_to_visualize_list)}**") # Usar la variable correcta
+            
+            # --- UMAPS POR EXPRESIÓN GÉNICA ---
             if 'X_umap' not in adata_display.obsm:
                 st.warning("Plots UMAP no disponibles ya que UMAP no se calculó o falló.")
             else:
                 st.markdown("#### UMAPs coloreados por Expresión Génica")
-                n_genes_umap_plot = len(genes_to_visualize_list)
-                cols_genes_umap = min(n_genes_umap_plot, 3); rows_genes_umap = (n_genes_umap_plot + cols_genes_umap - 1) // cols_genes_umap
-                if n_genes_umap_plot > 0:
-                    fig_ge_umaps, axes_ge_umaps = plt.subplots(rows_genes_umap, cols_genes_umap, figsize=(cols_genes_umap * 5, rows_genes_umap * 4.5), squeeze=False)
-                    axes_flat_ge_umaps = axes_ge_umaps.flatten()
-                    idx_ge_plot = 0 
-                    for idx_ge_plot, gene_name_plot in enumerate(genes_to_visualize_list):
-                        if idx_ge_plot < len(axes_flat_ge_umaps):
-                            ax_ge_curr = axes_flat_ge_umaps[idx_ge_plot]
+                n_genes_umap_plot_exp = len(genes_to_visualize_list) # Usar la variable correcta
+                cols_genes_umap_exp = min(n_genes_umap_plot_exp, 3)
+                rows_genes_umap_exp = (n_genes_umap_plot_exp + cols_genes_umap_exp - 1) // cols_genes_umap_exp
+                
+                if n_genes_umap_plot_exp > 0:
+                    fig_ge_umaps_exp, axes_ge_umaps_exp = plt.subplots(
+                        rows_genes_umap_exp, 
+                        cols_genes_umap_exp, 
+                        figsize=(cols_genes_umap_exp * 5, rows_genes_umap_exp * 4.5), 
+                        squeeze=False
+                    )
+                    axes_flat_ge_umaps_exp = axes_ge_umaps_exp.flatten()
+                    idx_ge_plot_exp = 0 
+                    for idx_ge_plot_exp, gene_name_plot_exp in enumerate(genes_to_visualize_list): # Usar la variable correcta
+                        if idx_ge_plot_exp < len(axes_flat_ge_umaps_exp):
+                            ax_ge_curr_exp = axes_flat_ge_umaps_exp[idx_ge_plot_exp]
                             try:
-                                sc.pl.umap(adata_display, color=gene_name_plot, ax=ax_ge_curr, show=False, title=gene_name_plot, cmap='viridis', use_raw=False, size=st.session_state.plot_point_size)
-                            except Exception as e_ge_umap_plot: 
-                                ax_ge_curr.text(0.5, 0.5, f"Error plot\n{gene_name_plot}", ha='center', va='center', color='red'); ax_ge_curr.set_xticks([]); ax_ge_curr.set_yticks([])
-                                print(f"Error ploteando UMAP para gen {gene_name_plot}: {e_ge_umap_plot}") 
-                    for j_ge_empty_ax in range(idx_ge_plot + 1, len(axes_flat_ge_umaps)): fig_ge_umaps.delaxes(axes_flat_ge_umaps[j_ge_empty_ax])
-                    plt.tight_layout(); st.pyplot(fig_ge_umaps)
-                    st.download_button("Descargar UMAPs de Genes (PNG)", fig_to_bytes(fig_ge_umaps), "gene_explorer_umaps.png", "image/png", key="dl_ge_umaps_png_v3")
-                    plt.close(fig_ge_umaps)
+                                sc.pl.umap(adata_display, color=gene_name_plot_exp, ax=ax_ge_curr_exp, 
+                                           show=False, title=gene_name_plot_exp, cmap='viridis', 
+                                           use_raw=False, size=st.session_state.plot_point_size)
+                            except Exception as e_ge_umap_plot_exp: 
+                                ax_ge_curr_exp.text(0.5, 0.5, f"Error plot\n{gene_name_plot_exp}", ha='center', va='center', color='red')
+                                ax_ge_curr_exp.set_xticks([]); ax_ge_curr_exp.set_yticks([])
+                                print(f"Error ploteando UMAP para gen {gene_name_plot_exp}: {e_ge_umap_plot_exp}") 
+                    
+                    for j_ge_empty_ax_exp in range(idx_ge_plot_exp + 1, len(axes_flat_ge_umaps_exp)): 
+                        fig_ge_umaps_exp.delaxes(axes_flat_ge_umaps_exp[j_ge_empty_ax_exp])
+                    
+                    plt.tight_layout()
+                    st.pyplot(fig_ge_umaps_exp)
+                    st.download_button("Descargar UMAPs de Genes (PNG)", fig_to_bytes(fig_ge_umaps_exp), 
+                                       "gene_explorer_umaps.png", "image/png", key="dl_ge_umaps_png_final") # Key actualizada
+                    plt.close(fig_ge_umaps_exp)
             
-            if 'leiden_clusters' in adata_display.obs and genes_to_visualize_list:
+            # --- VIOLINES POR CLÚSTER (CORREGIDO) ---
+            if 'leiden_clusters' in adata_display.obs and genes_to_visualize_list: # Usar la variable correcta
                 st.markdown("#### Diagramas de Violín por Clúster de Leiden")
-                try:
-                    genes_for_violin_cluster = genes_to_visualize_list[:min(5, len(genes_to_visualize_list))]
-                    n_clusters_violin = adata_display.obs['leiden_clusters'].nunique()
-                    fig_ge_violins_cl, ax_ge_violins_cl = plt.subplots(figsize=(max(7, n_clusters_violin * 0.8), 5))
-                    sc.pl.violin(adata_display, keys=genes_for_violin_cluster, groupby='leiden_clusters', rotation=45, ax=ax_ge_violins_cl, show=False, use_raw=False, cut=0, multi_panel=len(genes_for_violin_cluster)>1)
-                    plt.tight_layout(); st.pyplot(fig_ge_violins_cl)
-                    st.download_button("Violines por Clúster (PNG)", fig_to_bytes(fig_ge_violins_cl), "ge_violins_cluster.png", key="dl_ge_vln_cl_v3")
-                    plt.close(fig_ge_violins_cl)
-                except Exception as e_ge_vln_cl: st.error(f"Error violines por clúster: {e_ge_vln_cl}")
+                
+                n_genes_vln_cl_exp = len(genes_to_visualize_list) # Usar la variable correcta
+                cols_vln_cl_exp = min(2, n_genes_vln_cl_exp) 
+                rows_vln_cl_exp = (n_genes_vln_cl_exp + cols_vln_cl_exp - 1) // cols_vln_cl_exp
+
+                if n_genes_vln_cl_exp > 0:
+                    fig_violins_cl_exp, axes_violins_cl_exp = plt.subplots(
+                        rows_vln_cl_exp, cols_vln_cl_exp, 
+                        figsize=(cols_vln_cl_exp * max(7, adata_display.obs['leiden_clusters'].nunique() * 0.6), rows_vln_cl_exp * 5), 
+                        squeeze=False 
+                    )
+                    axes_flat_cl_exp = axes_violins_cl_exp.flatten()
+                    
+                    idx_plot_vln_cl_actual = 0 
+                    for idx_plot_vln_cl_actual, gene_name_vln_cl_exp in enumerate(genes_to_visualize_list): # Usar la variable correcta
+                        if idx_plot_vln_cl_actual < len(axes_flat_cl_exp): 
+                            ax_curr_vln_cl_exp = axes_flat_cl_exp[idx_plot_vln_cl_actual]
+                            try:
+                                sc.pl.violin(
+                                    adata_display, 
+                                    keys=gene_name_vln_cl_exp, # <--- Variable del bucle
+                                    groupby='leiden_clusters', 
+                                    rotation=45,
+                                    ax=ax_curr_vln_cl_exp, 
+                                    show=False, 
+                                    use_raw=False, 
+                                    cut=0
+                                    # No title aquí
+                                )
+                                ax_curr_vln_cl_exp.set_title(gene_name_vln_cl_exp) # <--- ¡ERROR AQUÍ! Debe ser gene_name_vln_cl_exp
+                            except Exception as e_vln_gene_cl_exp_loop: 
+                                ax_curr_vln_cl_exp.text(0.5,0.5, f"Error plot\n{gene_name_vln_cl_exp}", ha='center', va='center', color='red')
+                                ax_curr_vln_cl_exp.set_xticks([]); ax_curr_vln_cl_exp.set_yticks([])
+                                print(f"Error al generar violín (clúster) para gen '{gene_name_vln_cl_exp}': {e_vln_gene_cl_exp_loop}")
+                        else: break
+                    
+                    for j_empty_ax_vln_cl_exp in range(idx_plot_vln_cl_actual + 1, len(axes_flat_cl_exp)):
+                        fig_violins_cl_exp.delaxes(axes_flat_cl_exp[j_empty_ax_vln_cl_exp])
+
+                    plt.tight_layout()
+                    st.pyplot(fig_violins_cl_exp)
+                    st.download_button("Descargar Violines por Clúster (PNG)", fig_to_bytes(fig_violins_cl_exp), 
+                                       "ge_violins_cluster.png", key="dl_ge_violins_cluster_final_v2") 
+                    plt.close(fig_violins_cl_exp)
             
-            if 'condition_temp_dea' in adata_display.obs and adata_display.obs['condition_temp_dea'].nunique() > 1 and genes_to_visualize_list:
+            # --- VIOLINES POR CONDICIÓN (CORREGIDO) ---
+            if 'condition_temp_dea' in adata_display.obs and adata_display.obs['condition_temp_dea'].nunique() > 1 and genes_to_visualize_list: # Usar la variable correcta
                 st.markdown("#### Diagramas de Violín por Condición (definida en DEA)")
-                try:
-                    genes_for_violin_cond = genes_to_visualize_list[:min(5, len(genes_to_visualize_list))]
-                    n_conditions_violin = adata_display.obs['condition_temp_dea'].nunique()
-                    fig_ge_violins_co, ax_ge_violins_co = plt.subplots(figsize=(max(7, n_conditions_violin * 1.2), 5))
-                    sc.pl.violin(adata_display, keys=genes_for_violin_cond, groupby='condition_temp_dea', rotation=45, ax=ax_ge_violins_co, show=False, use_raw=False, cut=0, multi_panel=len(genes_for_violin_cond)>1)
-                    plt.tight_layout(); st.pyplot(fig_ge_violins_co)
-                    st.download_button("Violines por Condición (PNG)", fig_to_bytes(fig_ge_violins_co), "ge_violins_condition.png", key="dl_ge_vln_co_v2") # Key diferente
-                    plt.close(fig_ge_violins_co)
-                except Exception as e_ge_vln_co: st.error(f"Error violines por condición: {e_ge_vln_co}")
+                
+                n_genes_vln_cond_exp = len(genes_to_visualize_list) # Usar la variable correcta
+                cols_vln_cond_exp = min(2, n_genes_vln_cond_exp)
+                rows_vln_cond_exp = (n_genes_vln_cond_exp + cols_vln_cond_exp - 1) // cols_vln_cond_exp
 
+                if n_genes_vln_cond_exp > 0:
+                    fig_violins_cond_exp, axes_violins_cond_exp = plt.subplots(
+                        rows_vln_cond_exp, cols_vln_cond_exp, 
+                        figsize=(cols_vln_cond_exp * max(7, adata_display.obs['condition_temp_dea'].nunique() * 1.0), rows_vln_cond_exp * 5),
+                        squeeze=False
+                    )
+                    axes_flat_cond_exp = axes_violins_cond_exp.flatten()
+                    
+                    idx_plot_vln_cond_actual = 0
+                    for idx_plot_vln_cond_actual, gene_name_vln_cond_exp in enumerate(genes_to_visualize_list): # Usar la variable correcta
+                        if idx_plot_vln_cond_actual < len(axes_flat_cond_exp):
+                            ax_curr_vln_cond_exp = axes_flat_cond_exp[idx_plot_vln_cond_actual]
+                            try:
+                                sc.pl.violin(adata_display, keys=gene_name_vln_cond_exp, groupby='condition_temp_dea', rotation=45,
+                                             ax=ax_curr_vln_cond_exp, show=False, use_raw=False, cut=0, title=gene_name_vln_cond_exp)
+                            except Exception as e_vln_gene_cond_exp_loop:
+                                ax_curr_vln_cond_exp.text(0.5,0.5, f"Error plot\n{gene_name_vln_cond_exp}", ha='center', va='center', color='red')
+                                ax_curr_vln_cond_exp.set_xticks([]); ax_curr_vln_cond_exp.set_yticks([])
+                                print(f"Error al generar violín (condición) para gen '{gene_name_vln_cond_exp}': {e_vln_gene_cond_exp_loop}")
+                        else: break
+                    
+                    for j_empty_ax_vln_cond_exp in range(idx_plot_vln_cond_actual + 1, len(axes_flat_cond_exp)):
+                        fig_violins_cond_exp.delaxes(axes_flat_cond_exp[j_empty_ax_vln_cond_exp])
 
-            if len(genes_to_visualize_list) > 0 and 'leiden_clusters' in adata_display.obs:
+                    plt.tight_layout()
+                    st.pyplot(fig_violins_cond_exp)
+                    st.download_button("Descargar Violines por Condición (PNG)", fig_to_bytes(fig_violins_cond_exp), 
+                                       "ge_violins_condition.png", key="dl_ge_violins_condition_final_v2")
+                    plt.close(fig_violins_cond_exp)
+
+            # --- DOT PLOT DEL EXPLORADOR DE GENES ---
+            if len(genes_to_visualize_list) > 0 and 'leiden_clusters' in adata_display.obs: # Usar la variable correcta
                 st.markdown("#### Dot Plot de Genes Seleccionados por Clúster")
                 try:
-                    n_clusters_dot_ge = adata_display.obs['leiden_clusters'].nunique()
-                    fig_ge_dotplot, ax_ge_dotplot = plt.subplots(figsize=(max(8, len(genes_to_visualize_list) * 0.7), max(5, n_clusters_dot_ge * 0.5)))
-                    sc.pl.dotplot(adata_display, genes_to_visualize_list, groupby='leiden_clusters', ax=ax_ge_dotplot, show=False, standard_scale='var', use_raw=False)
-                    plt.xticks(rotation=90); plt.tight_layout(); st.pyplot(fig_ge_dotplot)
-                    st.download_button("Descargar Dot Plot de Genes (PNG)", fig_to_bytes(fig_ge_dotplot), "ge_dotplot.png", key="dl_ge_dotplot_v2") # Key diferente
-                    plt.close(fig_ge_dotplot)
-                except Exception as e_ge_dot: st.error(f"Error dot plot genes seleccionados: {e_ge_dot}")
+                    n_clusters_dot_ge_exp = adata_display.obs['leiden_clusters'].nunique()
+                    fig_ge_dotplot_exp, ax_ge_dotplot_exp = plt.subplots(figsize=(max(8, len(genes_to_visualize_list) * 0.7), max(5, n_clusters_dot_ge_exp * 0.5))) # Usar la variable correcta
+                    sc.pl.dotplot(adata_display, genes_to_visualize_list, groupby='leiden_clusters', ax=ax_ge_dotplot_exp, show=False, standard_scale='var', use_raw=False) # Usar la variable correcta
+                    plt.xticks(rotation=90); plt.tight_layout(); st.pyplot(fig_ge_dotplot_exp)
+                    st.download_button("Descargar Dot Plot de Genes (PNG)", fig_to_bytes(fig_ge_dotplot_exp), "ge_dotplot.png", key="dl_ge_dotplot_final") # Key actualizada
+                    plt.close(fig_ge_dotplot_exp)
+                except Exception as e_ge_dot_exp: 
+                    st.error(f"Error dot plot genes seleccionados: {e_ge_dot_exp}")
+                    st.error(traceback.format_exc()) # Añadir traceback para depuración
 
-
-    with tab_info:
-        # ... (código de info como lo tenías, usando adata_display) ...
-        st.subheader("Información del Dataset Procesado")
+    with tab_info_res:
+        st.subheader("Información del Dataset Procesado y Diagnóstico PCA")
         st.write(f"Total de Células (post-QC): {adata_display.n_obs}")
         st.write(f"Total de Genes (post-QC): {adata_display.n_vars}")
         if st.session_state.adata_hvg_subset is not None: 
@@ -1020,6 +1182,51 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
             st.dataframe(adata_display.obs['leiden_clusters'].value_counts().sort_index())
         st.write("Primeras 5 filas de Metadatos de Células (`.obs`):"); st.dataframe(adata_display.obs.head())
         st.write("Primeras 5 filas de Metadatos de Genes (`.var`):"); st.dataframe(adata_display.var.head())
+
+        
+        if st.session_state.show_pca_variance: # NUEVO: Mostrar condicionalmente
+            if st.session_state.adata_hvg_subset is not None and \
+               'pca' in st.session_state.adata_hvg_subset.uns and \
+               'variance_ratio' in st.session_state.adata_hvg_subset.uns['pca']:
+                st.markdown("#### Varianza Explicada por Componentes Principales (sobre HVGs)")
+                try:
+                    variance_ratio_pca_info = st.session_state.adata_hvg_subset.uns['pca']['variance_ratio']
+                    fig_pca_var_plot_info, ax_pca_var_plot_info = plt.subplots(figsize=(8,5))
+                    ax_pca_var_plot_info.plot(range(1, len(variance_ratio_pca_info) + 1), variance_ratio_pca_info, marker='o', linestyle='--', color='dodgerblue', label='Varianza Individual')
+                    ax_pca_var_plot_info.plot(range(1, len(variance_ratio_pca_info) + 1), np.cumsum(variance_ratio_pca_info), marker='.', linestyle='-', color='orangered', label='Varianza Acumulada')
+                    ax_pca_var_plot_info.set_xlabel("Número de Componentes Principales")
+                    ax_pca_var_plot_info.set_ylabel("Proporción de Varianza Explicada")
+                    ax_pca_var_plot_info.set_title("Scree Plot - Varianza de PCA")
+                    ax_pca_var_plot_info.grid(True, linestyle=':', alpha=0.7)
+                    
+                    # Marcar el número de PCs seleccionado por el usuario
+                    # Obtener el valor de n_pcs que realmente se usó en el pipeline (puede haber sido ajustado)
+                    # Esto es un poco más complejo porque current_n_pcs_val está en el scope del pipeline.
+                    # Una forma es guardarlo en session_state si se ajustó, o simplemente usar st.session_state.n_pcs
+                    # Aquí, por simplicidad, usaremos el valor del slider, pero idealmente sería el valor usado.
+                    pcs_used_in_pipeline = st.session_state.n_pcs 
+                    if 'X_pca_hvg' in adata_display.obsm: # Si se transfirió el PCA
+                         pcs_used_in_pipeline = adata_display.obsm['X_pca_hvg'].shape[1]
+
+
+                    ax_pca_var_plot_info.axvline(x=pcs_used_in_pipeline, color='darkgreen', linestyle=':', linewidth=2, label=f'PCs Usados ({pcs_used_in_pipeline})')
+                    ax_pca_var_plot_info.legend() 
+
+                    st.pyplot(fig_pca_var_plot_info)
+                    plt.close(fig_pca_var_plot_info)
+
+                    df_pca_variance_info = pd.DataFrame({
+                        'PC': range(1, len(variance_ratio_pca_info) + 1),
+                        'Varianza Individual': variance_ratio_pca_info,
+                        'Varianza Acumulada': np.cumsum(variance_ratio_pca_info)
+                    })
+                    st.dataframe(df_pca_variance_info.head(max(15, pcs_used_in_pipeline + 5)))
+                except Exception as e_pca_plot_info:
+                    st.error(f"Error generando plot de varianza PCA: {e_pca_plot_info}")
+            else:
+                st.info("Datos de varianza PCA no disponibles.")
+        # ... (resto de la info del dataset) ...
+
 else:
     if st.session_state.adata_raw is None and st.session_state.num_samples > 0 and not all_files_provided:
         st.info("Bienvenido. Por favor, sube todos los archivos para las muestras especificadas y luego haz clic en 'Cargar y Concatenar Datos'.")
@@ -1031,6 +1238,7 @@ else:
         st.info("Datos cargados. Haz clic en 'Ejecutar Pipeline Principal' en la barra lateral para iniciar el análisis.")
     else: 
         st.info("Bienvenido al Analizador Interactivo de scRNA-seq. Configura tus muestras y parámetros en la barra lateral izquierda para comenzar.")
+
 
 st.sidebar.markdown("---")
 # Sección para generar reporte (muy básica, solo HTML con parámetros)
@@ -1093,18 +1301,19 @@ st.sidebar.markdown("Ajusta los parámetros para la visualización de los result
 
 # Nota sobre dependencias y versiones
 st.sidebar.markdown("---")
-st.sidebar.info("Analizador scRNA-seq v0.9. Basado en Scanpy.")
+st.sidebar.info("Analizador scRNA-seq v1.0. Basado en Scanpy.")
 st.sidebar.markdown("Si experimentas errores con UMAP (ej: `ValueError: high is out of bounds`), considera usar un entorno con `numpy<2.0` o Python 3.10/3.11.")
 st.sidebar.markdown("Se recomienda crear un entorno virtual con versiones compatibles de las bibliotecas (ej: `numpy<2.0` si se experimentan errores con UMAP).")
 st.sidebar.markdown("Si tienes problemas, consulta la [documentación de Scanpy](https://scanpy.readthedocs.io/en/stable/) o el [repositorio de GitHub]).")
 st.sidebar.markdown("Para más información, visita el [repositorio de GitHub]).")
 st.sidebar.markdown("**Desarrollado por:** Pedro Botías - pbotias@ucm.es - https://github.com/pbotiast/scRNASeq")
 st.sidebar.markdown("**Licencia:** Licencia MIT - https://opensource.org/licenses/MIT")
-st.sidebar.markdown("**Fecha:** [05/05/2025] - [12/05/2025]")  
-st.sidebar.markdown("**Versión:** 0.9")
-st.sidebar.markdown("**Última Actualización:** 2025-05-12")
+st.sidebar.markdown("**Fecha:** [05/05/2025] - [13/05/2025]")  
+st.sidebar.markdown("**Versión:** 1.0")
+st.sidebar.markdown("**Última Actualización:** 2025-05-13")
 st.sidebar.markdown("**Notas:** Esta aplicación es un prototipo y puede contener errores. Usa bajo tu propio riesgo.")
 st.sidebar.markdown("**Disclaimer:** Esta aplicación es un prototipo y puede contener errores. Usa bajo tu propio riesgo.")
+
 
 
 
