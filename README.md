@@ -1,11 +1,22 @@
-# Analizador Interactivo de Single-Cell RNA-seq
+# Analizador Interactivo de Single-Cell RNA-seq Avanzado (v1.0)
 
 ## 1. Introducción
 
-Este proyecto es una aplicación web interactiva desarrollada con Streamlit y Scanpy, diseñada para facilitar el análisis de datos de secuenciación de ARN de célula única (scRNA-seq). Permite a los usuarios cargar datos de múltiples muestras (en formato 10x Genomics), realizar un pipeline de análisis estándar que incluye control de calidad, normalización, reducción de dimensionalidad, clustering, y la identificación de genes marcadores. Adicionalmente, ofrece la posibilidad de realizar análisis de expresión diferencial entre condiciones definidas por el usuario.
+Este proyecto es una aplicación web interactiva desarrollada con Streamlit y Scanpy, diseñada para un análisis completo de datos de secuenciación de ARN de célula única (scRNA-seq). Permite a los usuarios cargar datos de múltiples muestras (formato 10x Genomics), realizar un pipeline de análisis estándar que incluye validación de archivos, control de calidad, normalización, selección de genes altamente variables (considerando batches), reducción de dimensionalidad (PCA, UMAP 2D y opcionalmente 3D), clustering, identificación de genes marcadores, y análisis de expresión diferencial.
+
+**Nuevas Funcionalidades Destacadas (v1.0):**
+*   **Gene Scoring:** Calcula y visualiza scores para listas de genes personalizadas.
+*   **Visualización de Varianza PCA:** Ayuda a determinar el número óptimo de componentes principales.
+*   **Tablas Interactivas:** Las tablas de genes marcadores y resultados DEA ahora usan un editor de datos para permitir ordenamiento y filtrado.
+*   **Heatmap de Marcadores:** Nueva pestaña para visualizar la expresión de los top N marcadores.
+*   **UMAP 3D Opcional:** Visualiza tus datos en tres dimensiones.
+*   **Personalización de Plots:** Control sobre paletas de colores y tamaño de puntos.
+*   **Guardar/Cargar Configuración:** Guarda y reutiliza conjuntos de parámetros del pipeline.
+*   **Reporte HTML Básico:** Genera un resumen del análisis.
+*   **Mejoras de UX:** Validación de archivos más robusta, nombres de muestra correctos, sugerencias de genes.
 
 **Propósito de la Aplicación:**
-Proporcionar una herramienta visual e intuitiva para el análisis exploratorio de datos scRNA-seq, accesible tanto para biólogos con conocimientos básicos de bioinformática como para bioinformáticos que buscan una forma rápida de visualizar y procesar sus datos.
+Proporcionar una herramienta visual e intuitiva para el análisis exploratorio y detallado de datos scRNA-seq, accesible tanto para biólogos como para bioinformáticos.
 
 **Audiencia:**
 Investigadores y científicos que trabajan con datos de scRNA-seq y necesitan una plataforma para realizar análisis preliminares y generar visualizaciones de forma interactiva.
@@ -28,47 +39,22 @@ Sigue estos pasos para comenzar a analizar tus datos:
 
 ### Pasos para un Análisis Básico:
 
-1.  **Ejecutar la Aplicación:**
-    *   Si tienes el código localmente y Python/Streamlit instalados, abre una terminal o línea de comandos.
-    *   Navega hasta el directorio donde guardaste el script (ej: `analizador_scRNAseq.py`).
-    *   Ejecuta el comando: `streamlit run analizador_scRNAseq.py` (reemplaza `analizador_scRNAseq.py` con el nombre real de tu archivo).
-    *   La aplicación se abrirá automáticamente en tu navegador web.
-
-2.  **Configurar la Carga de Datos (en la barra lateral izquierda):**
-    *   **Número de muestras a cargar:** Introduce cuántas muestras diferentes vas a analizar.
-    *   Para cada muestra que aparezca:
-        *   **Nombre Muestra X:** Escribe un nombre descriptivo para la muestra (ej: "Control_Dia0", "Tratado_Rep1").
-        *   **Matrix.mtx (MX):** Haz clic en "Browse files" y selecciona el archivo `matrix.mtx.gz` (o `.mtx`) de esa muestra.
-        *   **Features.tsv (MX):** Haz clic en "Browse files" y selecciona el archivo `features.tsv.gz` (o similar) de esa muestra.
-        *   **Barcodes.tsv (MX):** Haz clic en "Browse files" y selecciona el archivo `barcodes.tsv.gz` (o `.tsv`) de esa muestra.
-
-3.  **Cargar y Concatenar Datos:**
-    *   Una vez que hayas subido todos los archivos para todas tus muestras, haz clic en el botón **"Cargar y Concatenar Datos"** en la barra lateral.
-    *   Espera a que aparezca el mensaje de éxito (ej: "Cargado: X células, Y genes.").
-
-4.  **Ajustar Parámetros del Pipeline (opcional):**
-    *   En la sección "2. Parámetros de Pipeline Principal" de la barra lateral, puedes ajustar los valores para el filtrado, normalización, etc. Los valores por defecto son un buen punto de partida.
-
-5.  **Ejecutar el Pipeline Principal:**
-    *   Haz clic en el botón **"Ejecutar Pipeline Principal"** en la barra lateral.
-    *   Este proceso puede tardar unos minutos dependiendo del tamaño de tus datos. Verás una barra de progreso y mensajes de estado.
-    *   Una vez completado, aparecerá un mensaje de éxito (y unos globos 🎈).
-
-6.  **Explorar los Resultados:**
-    *   La sección principal de la aplicación se poblará con varias pestañas (`📊 UMAPs`, `🔬 Marcadores Clúster`, etc.). Navega por ellas para ver los resultados.
-    *   Utiliza el **"🔬 Explorador de Expresión Génica"** en la parte superior de la sección de resultados para visualizar genes específicos.
-
-7.  **Análisis de Expresión Diferencial (DEA) (opcional):**
-    *   Si deseas comparar grupos de muestras, ve a la sección "3. Análisis de Expresión Diferencial (DEA)" en la barra lateral (esta sección aparece después de ejecutar el pipeline principal).
-    *   **Asigna condiciones** a tus muestras (ej: Muestra1 -> "Control", Muestra2 -> "Tratado").
-    *   **Selecciona Grupo 1 y Grupo 2** para la comparación.
-    *   Ajusta los parámetros del DEA si es necesario.
-    *   Haz clic en **"Ejecutar Análisis Diferencial"**.
-    *   Los resultados aparecerán en la pestaña `📈 Análisis Diferencial`.
-
-8.  **Descargar Resultados:**
-    *   Utiliza los botones "Descargar..." que aparecen debajo de cada tabla o gráfico para guardar tus resultados.
-    *   En la barra lateral, también encontrarás un botón para descargar el objeto `AnnData` procesado completo.
+1.  **Ejecutar la Aplicación:** (Como antes)
+2.  **Guardar/Cargar Configuración (Opcional):** En la sidebar, puedes guardar tu conjunto actual de parámetros o cargar uno previamente guardado.
+3.  **Configurar la Carga de Datos:**
+    *   Selecciona el número de muestras.
+    *   Para cada muestra, **asigna un nombre descriptivo** y sube los archivos `matrix`, `features`, y `barcodes`. Los nombres de muestra se conservarán.
+4.  **Validar y Cargar Datos:**
+    *   Pulsa **"Cargar y Concatenar Datos"**. La aplicación validará los archivos. Revisa el "Registro de Validación de Archivos" si hay errores.
+5.  **Ajustar Parámetros del Pipeline:**
+    *   Revisa y ajusta los parámetros en "2. Parámetros del Pipeline", incluyendo los nuevos para UMAP y personalización de plots. El orden principal es: QC -> HVG (antes de normalizar) -> Normalización -> PCA -> Vecinos -> UMAP -> Leiden.
+6.  **Ejecutar el Pipeline Principal:**
+    *   Pulsa **"Ejecutar Pipeline Principal"**.
+7.  **Explorar los Resultados:**
+    *   Navega por las pestañas: `UMAPs` (ahora con opción 3D), `Marcadores` (tabla interactiva), `Heatmap Marcadores` (nueva), `Gene Scoring` (nueva), `QC`, `DEA` (tabla interactiva), `Explorador Genes` (con violines múltiples corregidos), `Info` (ahora con varianza PCA).
+8.  **Análisis de Expresión Diferencial (DEA) (Opcional):** (Como antes)
+9.  **Generar Reporte (Opcional):** En la sidebar, puedes generar un reporte HTML básico.
+10. **Descargar Datos:** Descarga el `AnnData` procesado o los resultados tabulares/gráficos.
 
 ## 3. Descripción Detallada de la Interfaz y Funcionalidades
 
@@ -77,6 +63,18 @@ Esta sección describe en detalle cada componente de la interfaz de usuario y su
 ### 3.1. Barra Lateral (Sidebar)
 
 La barra lateral, ubicada a la izquierda de la aplicación, contiene todos los controles para la carga de datos, la configuración de los parámetros del análisis y la ejecución de los principales pasos del pipeline.
+
+#### 3.1.0. Sección "Guardar/Cargar Configuración" 
+
+Esta sección permite guardar y cargar los parámetros de configuración del pipeline para facilitar la reproducibilidad y la aplicación de configuraciones consistentes a diferentes análisis.
+
+*   **Botón `Guardar Configuración Actual`**:
+    *   Al pulsarlo, se genera un archivo JSON que contiene los valores actuales de todos los parámetros configurables en la sidebar (excepto los datos AnnData en sí mismos y los archivos subidos).
+    *   Se ofrece un botón para descargar este archivo `scRNAseq_app_params_[fecha].json`.
+*   **`Cargar Configuración (.json)`**:
+    *   Permite subir un archivo JSON previamente guardado.
+    *   Si el archivo es válido, los parámetros en la sidebar se actualizarán con los valores del archivo.
+    *   Es útil para restaurar una configuración de análisis anterior o para compartir parámetros.
 
 #### 3.1.1. Sección "1. Carga de Datos"
 
@@ -104,30 +102,27 @@ Esta es la primera sección que encontrarás y es esencial para iniciar cualquie
     *   **Función:**
         1.  **Validación de Archivos:** Antes de cargar, la aplicación realiza una validación básica del formato de los archivos subidos (ej. si el matrix.mtx parece un archivo MatrixMarket). Los resultados de la validación se muestran en un expander.
         2.  **Carga y Concatenación:** Si todos los archivos son válidos, inicia el proceso de carga. Los datos de cada muestra se leen individualmente (conservando el nombre de muestra proporcionado) y luego se concatenan en un único objeto AnnData (`adata_raw`). La columna `adata_raw.obs['sample']` contendrá los nombres de muestra que especificaste.
+        3. **Realiza una **validación del formato** de los archivos 10x. Los resultados se muestran en un expander.
     *   **Uso:** Púlsalo *después* de haber seleccionado todos los archivos necesarios para todas las muestras.
     *   **Nota:** Si la validación falla para alguna muestra, la carga no procederá. Deberás corregir los archivos y volver a intentarlo. Al pulsar este botón, se reiniciarán los resultados de cualquier pipeline anterior.
 
 #### 3.1.2. Sección "2. Parámetros del Pipeline"
 
-Esta sección te permite configurar los parámetros para los pasos de preprocesamiento, análisis y clustering. El orden principal de las operaciones del pipeline es: QC -> HVG -> Normalización/Log -> Escalado (de HVGs) -> PCA -> Vecinos -> UMAP -> Leiden.
+Esta sección te permite configurar los parámetros para los pasos de preprocesamiento, análisis y clustering. El orden principal de las operaciones del pipeline es: QC -> HVG (sobre datos crudos post-QC, con `batch_key='sample'`) -> Normalización/Log -> Creación de subconjunto HVG -> Escalado (de HVGs) -> PCA -> Vecinos KNN -> UMAP -> Leiden.
 
 *   **`Mínimo genes/célula`**: Filtra células con un número de genes detectados inferior a este umbral.
 *   **`Mínimo células/gen`**: Filtra genes que se expresan en un número de células inferior a este umbral.
 *   **`Prefijo genes mitocondriales`**: Cadena para identificar genes mitocondriales (ej: `MT-` para humano).
 *   **`Máx % cuentas mitocondriales`**: Porcentaje máximo de cuentas mitocondriales permitido por célula.
-*   **`Nº HVGs a seleccionar`**: Número de Genes Altamente Variables (HVGs) a seleccionar. La selección de HVGs (usando el método `seurat_v3` con `batch_key='sample'`) se realiza **antes** de la normalización global, sobre los datos de cuentas crudas post-QC.
-*   **`Nº PCs (para PCA y Vecinos)`**: Número de componentes principales a calcular con PCA y a usar para la construcción del grafo de vecinos. El valor se ajusta automáticamente si es demasiado alto para las dimensiones de los datos post-HVG. Mínimo 5 recomendado para el solver `arpack`.
-*   **`Nº Vecinos (para grafo KNN)`**: Número de vecinos a considerar al construir el grafo de Vecinos Próximos (KNN), que se usa para UMAP y Leiden. Se ajusta automáticamente si es demasiado alto para el número de células.
-*   **`Resolución Leiden`**: Parámetro del algoritmo de clustering Leiden. Valores más altos tienden a producir más clústeres.
-*   **`Nº marcadores a mostrar/clúster`**: Cuántos genes marcadores se mostrarán en la tabla de resultados.
-*   **`Backend Leiden`**: Permite elegir el backend para el algoritmo de Leiden (`igraph` o `leidenalg`). `igraph` es generalmente recomendado y es el default.
-
+*   **`Nº HVGs a seleccionar`**: La selección se hace sobre datos crudos post-QC, usando `batch_key='sample'` para robustez con múltiples muestras.
+*   **`Nº PCs (para PCA y Vecinos)`**: Se ajusta automáticamente si es inválido para las dimensiones de los datos HVG.
+*   **`Nº Vecinos (para grafo KNN)`**: (NUEVO SLIDER) Controla los vecinos para el grafo usado en UMAP y Leiden. Se ajusta automáticamente.
+*   **`Backend Leiden`**: (NUEVO SELECTBOX) Elige entre `igraph` (default) y `leidenalg`.
 *   **Subsección `Parámetros UMAP`**:
-    *   **`Calcular también UMAP 3D`**: Checkbox para opcionalmente calcular y permitir la visualización de un embedding UMAP en 3 dimensiones.
-    *   **`Inicialización UMAP`**: Método de inicialización para UMAP (`spectral`, `random`, `pca`). `'random'` es el default actual en la app por mayor estabilidad con algunas combinaciones de versiones de bibliotecas, aunque `'spectral'` es a menudo preferido.
-    *   **`Nº Vecinos UMAP (para embedding)`**: Número de vecinos que UMAP considera al construir su propia representación del grafo para el embedding. Este parámetro es específico de UMAP y puede ser diferente del "Nº Vecinos (para grafo KNN)". Controla el balance entre detalle local y estructura global en el plot UMAP.
-    *   **`Distancia Mínima UMAP`**: Controla cuán agrupados o dispersos estarán los puntos en el embedding UMAP. Valores más bajos tienden a agrupar más los puntos.
-
+    *   **`Calcular también UMAP 3D`**: (NUEVO CHECKBOX)
+    *   **`Inicialización UMAP`**: (SELECTBOX) `spectral`, `random` (default actual por estabilidad), `pca`.
+    *   **`Nº Vecinos UMAP (para embedding)`**: (NUEVO SLIDER) Específico para el algoritmo UMAP.
+    *   **`Distancia Mínima UMAP`**: (NUEVO SLIDER)
 *   **Subsección (Nueva) `Personalización de Plots`** (ubicada al final de la sidebar o en su propio expander):
     *   **`Paleta de Colores (Clusters/Muestras)`**: Permite seleccionar una paleta de colores de Matplotlib/Scanpy para los plots UMAP y otros.
     *   **`Tamaño de Puntos UMAP (aprox.)`**: Controla el tamaño de los puntos en los plots UMAP 2D generados con `sc.pl.umap`.
@@ -146,8 +141,17 @@ Esta sección te permite configurar los parámetros para los pasos de preprocesa
         9.  Transferencia de resultados (clusters, UMAPs) al AnnData procesado completo.
         10. Cálculo de genes marcadores.
     *   Si tiene éxito, las pestañas de resultados se actualizan.
+ 
+   
+#### 3.1.3. Sección "3. Personalización de Plots" (NUEVA SECCIÓN o Expander)
 
-#### 3.1.3. Sección "3. Análisis de Expresión Diferencial (DEA)"
+*   **`Paleta de Colores (Clusters/Muestras)`**: Selecciona la paleta de colores para UMAPs, heatmaps, etc.
+*   **`Tamaño de Puntos UMAP (aprox.)`**: Ajusta el tamaño de los puntos en los UMAPs 2D.
+*   **`Nº genes/clúster para Heatmap Marcadores`**: Define cuántos marcadores por clúster mostrar en el heatmap.
+*   **`Mostrar Varianza PCA en Info`**: (NUEVO CHECKBOX) Controla si se muestra el scree plot de PCA.
+
+
+#### 3.1.4. Sección "4. Análisis Diferencial (DEA)"
 
 Esta sección aparece en la barra lateral **únicamente después de que el "Pipeline Principal" se haya ejecutado con éxito** (es decir, `st.session_state.analysis_done` es `True` y `st.session_state.adata_processed` existe). Permite comparar la expresión génica entre diferentes grupos de muestras, que se definen como "condiciones".
 
@@ -199,7 +203,12 @@ Esta sección aparece en la barra lateral **únicamente después de que el "Pipe
     *   **Uso:** Púlsalo después de configurar todas las opciones del DEA.
     *   **Resultado:** Si tiene éxito, los resultados se mostrarán en la pestaña "📈 Análisis Diferencial". Si hay muy pocas células en alguno de los grupos (menos de 3), se mostrará un error.
 
-#### 3.1.4. Botones de Acción y Descarga Adicionales en la Sidebar
+#### 3.1.5. Botón "Generar Reporte Básico (HTML)" (NUEVO BOTÓN - añadirlo al final de la sidebar)
+*   **Función:** Genera un archivo HTML simple que resume los parámetros clave del pipeline y estadísticas básicas del dataset procesado.
+*   **Uso:** Útil para un resumen rápido o para compartir.
+
+  
+#### 3.1.6. Botones de Acción y Descarga Adicionales en la Sidebar
 
 Al final de la barra lateral, o distribuidos en ella, pueden aparecer otros elementos:
 
@@ -210,17 +219,7 @@ Al final de la barra lateral, o distribuidos en ella, pueden aparecer otros elem
 *   **Información de la App:**
     *   Al final de la sidebar, se muestra la versión de la aplicación (ej: `App scRNA-seq v0.4`).
 
-#### 3.1.5. Sección "Guardar/Cargar Configuración"
 
-Esta sección permite guardar y cargar los parámetros de configuración del pipeline para facilitar la reproducibilidad y la aplicación de configuraciones consistentes a diferentes análisis.
-
-*   **Botón `Guardar Configuración Actual`**:
-    *   Al pulsarlo, se genera un archivo JSON que contiene los valores actuales de todos los parámetros configurables en la sidebar (excepto los datos AnnData en sí mismos y los archivos subidos).
-    *   Se ofrece un botón para descargar este archivo `scRNAseq_app_params_[fecha].json`.
-*   **`Cargar Configuración (.json)`**:
-    *   Permite subir un archivo JSON previamente guardado.
-    *   Si el archivo es válido, los parámetros en la sidebar se actualizarán con los valores del archivo.
-    *   Es útil para restaurar una configuración de análisis anterior o para compartir parámetros.
 
 ### 3.2. Sección de Resultados (Panel Principal)
 
@@ -245,7 +244,10 @@ Esta pestaña se centra en las visualizaciones UMAP (Uniform Manifold Approximat
     *   **Visualización:** Un gráfico UMAP donde cada punto representa una célula, y el color de cada punto indica el clúster de Leiden al que ha sido asignada.
     *   **Interpretación:** Ayuda a visualizar la separación de los diferentes clústeres celulares identificados. Idealmente, células del mismo clúster deberían agruparse en el UMAP. Se incluye la resolución de Leiden utilizada.
     *   **Descarga:** Botón "UMAP Clúster (PNG)" para descargar la imagen.
-
+ 
+ *   **`UMAP 3D`**.
+    *   **Visualización:** Un gráfico UMAP 3D donde cada punto representa una célula, y el color de cada punto indica el clúster de Leiden al que ha sido asignada.
+   
 *   **`UMAP por Muestra`**:
     *   **Visualización:** Un gráfico UMAP similar al anterior, pero esta vez el color de cada punto indica la muestra de origen de la célula (según los nombres que proporcionaste durante la carga de datos).
     *   **Interpretación:** Útil para identificar si hay efectos de batch (si las células de una muestra se agrupan separadamente de otras sin una razón biológica clara) o si ciertos tipos celulares son específicos de una muestra/condición.
@@ -293,7 +295,16 @@ Esta pestaña visualiza la expresión de los genes marcadores más importantes a
     *   **Interpretación:** Ayuda a ver patrones de co-expresión y la especificidad de los marcadores de forma visual.
     *   **Descarga:** Botón para descargar el heatmap como imagen PNG.
     *   
-#### 3.2.5. Pestaña: "🧬 QC Plots"
+
+#### 3.2.5. Pestaña: "🎯 Gene Scoring" (NUEVA PESTAÑA)
+*   **Función:** Permite al usuario introducir una lista de genes y un nombre para calcular un "score" o firma génica agregada para cada célula.
+*   **Cálculo:** Utiliza `sc.tl.score_genes()`.
+*   **Visualización:** El score calculado (una nueva columna en `adata.obs`) se puede visualizar en:
+    *   UMAP 2D (coloreado por el score).
+    *   UMAP 3D (si está disponible, coloreado por el score).
+    *   Diagramas de Violín (score distribuido por clústeres de Leiden).
+
+#### 3.2.6. Pestaña: "🧬 QC Plots"
 
 Esta pestaña muestra gráficos de control de calidad (Quality Control) que resumen métricas importantes sobre las células, agrupadas por la muestra original. Estos gráficos se generan sobre los datos *después* del filtrado inicial.
 
@@ -305,7 +316,7 @@ Esta pestaña muestra gráficos de control de calidad (Quality Control) que resu
     *   **Interpretación:** Estos gráficos permiten comparar la calidad de las células entre diferentes muestras. Diferencias grandes podrían indicar problemas técnicos en alguna muestra o diferencias biológicas intrínsecas. Por ejemplo, después del filtrado, se espera que los porcentajes mitocondriales sean bajos y relativamente homogéneos.
     *   **Descarga:** Cada gráfico de violín tiene su propio botón de descarga "Descargar [NombreMétrica] (PNG)".
 
-#### 3.2.6. Pestaña: "📈 Análisis Diferencial"
+#### 3.2.7. Pestaña: "📈 Análisis Diferencial"
 
 Esta pestaña muestra los resultados del Análisis de Expresión Diferencial (DEA) si se ha ejecutado desde la barra lateral.
 
@@ -336,7 +347,7 @@ Esta pestaña muestra los resultados del Análisis de Expresión Diferencial (DE
         *   Al pasar el ratón sobre un punto, se muestra información adicional del gen.
     *   **Descarga:** Botón "Volcano Plot (HTML)" para descargar el gráfico interactivo como un archivo HTML independiente.
 
-#### 3.2.7. Pestaña: "🧬 Explorador Genes"
+#### 3.2.8. Pestaña: "🧬 Explorador Genes"
 
 Esta pestaña muestra visualizaciones específicas para los genes que has introducido en el campo "🔬 Explorador de Expresión Génica" en la parte superior del panel de resultados.
 
@@ -364,7 +375,7 @@ Esta pestaña muestra visualizaciones específicas para los genes que has introd
     *   **Interpretación:** Muestra el nivel promedio de expresión (color) y el porcentaje de células que expresan (tamaño del punto) cada uno de los genes seleccionados, a través de todos los clústeres de Leiden.
     *   **Descarga:** Botón "Dot Plot Genes (PNG)" para descargar la imagen.
 
-#### 3.2.7. Pestaña: "ℹ️ Info Dataset"
+#### 3.2.9. Pestaña: "ℹ️ Info Dataset"
 
 Esta pestaña proporciona información resumida y metadatos sobre el conjunto de datos procesado.
 
