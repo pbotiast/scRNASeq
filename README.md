@@ -1,19 +1,20 @@
-# Analizador Interactivo de Single-Cell RNA-seq Avanzado (v1.0)
+# Analizador Interactivo de Single-Cell RNA-seq - Levadura (v1.1 - Estable con Leidenalg)
 
 ## 1. Introducción
 
-Este proyecto es una aplicación web interactiva desarrollada con Streamlit y Scanpy, diseñada para un análisis completo de datos de secuenciación de ARN de célula única (scRNA-seq). Permite a los usuarios cargar datos de múltiples muestras (formato 10x Genomics), realizar un pipeline de análisis estándar que incluye validación de archivos, control de calidad, normalización, selección de genes altamente variables (considerando batches), reducción de dimensionalidad (PCA, UMAP 2D y opcionalmente 3D), clustering, identificación de genes marcadores, y análisis de expresión diferencial.
+Este proyecto es una aplicación web interactiva desarrollada con Streamlit y Scanpy para el análisis de datos de secuenciación de ARN de célula única (scRNA-seq), con adaptaciones para *Saccharomyces cerevisiae*. Permite a los usuarios cargar datos (formato 10x Genomics o similar), realizar un pipeline de análisis que incluye validación de archivos, control de calidad (QC), selección de genes altamente variables (HVG considerando batches), normalización, reducción de dimensionalidad (PCA, UMAP 2D/3D), clustering (usando **Leiden con el backend `leidenalg` por defecto para mayor estabilidad**), identificación de genes marcadores, y análisis de expresión diferencial (DEA).
 
-**Nuevas Funcionalidades Destacadas (v1.0):**
-*   **Gene Scoring:** Calcula y visualiza scores para listas de genes personalizadas.
+**Funcionalidades Destacadas:**
+*   **Análisis Específico para Levadura:** Carga opcional de archivo SGD para mejorar la búsqueda y sugerencia de genes. Parámetros de QC y análisis ajustables (ej. prefijo mitocondrial `Q0`).
+*   **Gene Scoring:** Calcula y visualiza scores para listas de genes personalizadas (firmas génicas).
 *   **Visualización de Varianza PCA:** Ayuda a determinar el número óptimo de componentes principales.
-*   **Tablas Interactivas:** Las tablas de genes marcadores y resultados DEA ahora usan un editor de datos para permitir ordenamiento y filtrado.
-*   **Heatmap de Marcadores:** Nueva pestaña para visualizar la expresión de los top N marcadores.
-*   **UMAP 3D Opcional:** Visualiza tus datos en tres dimensiones.
+*   **Tablas Interactivas:** Los genes marcadores y resultados DEA se muestran en tablas que permiten ordenar/filtrar.
+*   **Heatmap de Marcadores:** Visualiza la expresión de los top N marcadores por clúster.
+*   **UMAP 3D Opcional:** Ofrece una perspectiva tridimensional de los datos.
 *   **Personalización de Plots:** Control sobre paletas de colores y tamaño de puntos.
 *   **Guardar/Cargar Configuración:** Guarda y reutiliza conjuntos de parámetros del pipeline.
 *   **Reporte HTML Básico:** Genera un resumen del análisis.
-*   **Mejoras de UX:** Validación de archivos más robusta, nombres de muestra correctos, sugerencias de genes.
+*   **Mejoras de UX:** Validación de archivos robusta, nombres de muestra conservados, sugerencias de genes (mejoradas con SGD).
 
 **Propósito de la Aplicación:**
 Proporcionar una herramienta visual e intuitiva para el análisis exploratorio y detallado de datos scRNA-seq, accesible tanto para biólogos como para bioinformáticos.
@@ -40,21 +41,20 @@ Sigue estos pasos para comenzar a analizar tus datos:
 ### Pasos para un Análisis Básico:
 
 1.  **Ejecutar la Aplicación:** (Como antes)
-2.  **Guardar/Cargar Configuración (Opcional):** En la sidebar, puedes guardar tu conjunto actual de parámetros o cargar uno previamente guardado.
-3.  **Configurar la Carga de Datos:**
-    *   Selecciona el número de muestras.
-    *   Para cada muestra, **asigna un nombre descriptivo** y sube los archivos `matrix`, `features`, y `barcodes`. Los nombres de muestra se conservarán.
-4.  **Validar y Cargar Datos:**
-    *   Pulsa **"Cargar y Concatenar Datos"**. La aplicación validará los archivos. Revisa el "Registro de Validación de Archivos" si hay errores.
+2.  **Guardar/Cargar Configuración (Opcional):** (Como antes)
+3.  **Configurar la Carga de Datos:** (Como antes, destacar que los nombres de muestra se conservan).
+    *   **(Opcional para Levadura):** En la sidebar, expande "Carga de Archivo SGD" y sube tu archivo `SGD_features.tab` para mejorar las sugerencias de genes.
+4.  **Validar y Cargar Datos:** (Como antes)
 5.  **Ajustar Parámetros del Pipeline:**
-    *   Revisa y ajusta los parámetros en "2. Parámetros del Pipeline", incluyendo los nuevos para UMAP y personalización de plots. El orden principal es: QC -> HVG (antes de normalizar) -> Normalización -> PCA -> Vecinos -> UMAP -> Leiden.
-6.  **Ejecutar el Pipeline Principal:**
-    *   Pulsa **"Ejecutar Pipeline Principal"**.
-7.  **Explorar los Resultados:**
-    *   Navega por las pestañas: `UMAPs` (ahora con opción 3D), `Marcadores` (tabla interactiva), `Heatmap Marcadores` (nueva), `Gene Scoring` (nueva), `QC`, `DEA` (tabla interactiva), `Explorador Genes` (con violines múltiples corregidos), `Info` (ahora con varianza PCA).
+    *   Revisa los parámetros en "2. Parámetros del Pipeline". El backend de Leiden está configurado por defecto a `leidenalg` por estabilidad, pero `igraph` está disponible.
+6.  **Ejecutar el Pipeline Principal:** (Como antes)
+7.  **Explorar los Resultados:** (Como antes, menciona las pestañas actualizadas)
 8.  **Análisis de Expresión Diferencial (DEA) (Opcional):** (Como antes)
-9.  **Generar Reporte (Opcional):** En la sidebar, puedes generar un reporte HTML básico.
-10. **Descargar Datos:** Descarga el `AnnData` procesado o los resultados tabulares/gráficos.
+9.  **Generar Reporte (Opcional):** (Como antes)
+10. **Descargar Datos:** (Como antes)
+
+**Nota Importante sobre el Entorno:**
+Para una experiencia óptima y evitar posibles errores numéricos con algunas bibliotecas (especialmente si se usa `leiden_flavor="igraph"` o ciertas versiones de UMAP), se recomienda usar un entorno Python estable (ej. 3.10 o 3.11) con `numpy<2.0`. La aplicación ha sido configurada para usar `leidenalg` y `umap(init='random')` por defecto para maximizar la compatibilidad.
 
 ## 3. Descripción Detallada de la Interfaz y Funcionalidades
 
@@ -117,7 +117,11 @@ Esta sección te permite configurar los parámetros para los pasos de preprocesa
 *   **`Nº HVGs a seleccionar`**: La selección se hace sobre datos crudos post-QC, usando `batch_key='sample'` para robustez con múltiples muestras.
 *   **`Nº PCs (para PCA y Vecinos)`**: Se ajusta automáticamente si es inválido para las dimensiones de los datos HVG.
 *   **`Nº Vecinos (para grafo KNN)`**: (NUEVO SLIDER) Controla los vecinos para el grafo usado en UMAP y Leiden. Se ajusta automáticamente.
-*   **`Backend Leiden`**: (NUEVO SELECTBOX) Elige entre `igraph` (default) y `leidenalg`.
+*   **`Backend Leiden`**: Permite elegir el backend para el algoritmo de Leiden.
+    *   `leidenalg` (default): Generalmente más estable con diversas versiones de NumPy/Python.
+    *   `igraph`: Puede ser más rápido, pero ha mostrado problemas de compatibilidad con NumPy 2.x / Python 3.13 en algunas pruebas (puede causar errores `ValueError: high is out of bounds`). Se recomienda `leidenalg` si se experimentan estos errores.
+*   **Subsección `Parámetros UMAP`**:
+    *   **`Inicialización UMAP`**: Se usa `'random'` por defecto, ya que ha demostrado ser más estable con algunas combinaciones de versiones de bibliotecas que `'spectral'`.
 *   **Subsección `Parámetros UMAP`**:
     *   **`Calcular también UMAP 3D`**: (NUEVO CHECKBOX)
     *   **`Inicialización UMAP`**: (SELECTBOX) `spectral`, `random` (default actual por estabilidad), `pca`.
@@ -219,6 +223,9 @@ Al final de la barra lateral, o distribuidos en ella, pueden aparecer otros elem
 *   **Información de la App:**
     *   Al final de la sidebar, se muestra la versión de la aplicación (ej: `App scRNA-seq v0.4`).
 
+#### 3.1.7. Sección "Carga de Archivo SGD (Opcional para Levadura)" (NUEVA SECCIÓN)
+*   Permite subir un archivo `SGD_features.tab` (o similar) que contiene información de genes de *Saccharomyces cerevisiae*, incluyendo alias y nombres estándar.
+*   Si se carga, la función de "Sugerencias de Genes" en el explorador utilizará esta información para ofrecer mejores alternativas si un gen no se encuentra directamente en los datos.
 
 
 ### 3.2. Sección de Resultados (Panel Principal)
@@ -466,6 +473,26 @@ Aquí encontrarás respuestas a preguntas frecuentes y soluciones a problemas co
 *   Las tablas (marcadores, DEA) se pueden descargar como CSV.
 *   Los gráficos individuales se pueden descargar como PNG o HTML.
 
+**P9: La aplicación muestra errores `ValueError: high is out of bounds for int32` en la consola, a veces como "Exception ignored".**
+*   **Causa Probable:** Esto suele indicar una incompatibilidad entre la versión de NumPy que estás usando (especialmente NumPy 2.x) y alguna de las bibliotecas de análisis subyacentes (como `python-igraph` usado por `sc.tl.leiden(flavor="igraph")` o a veces `umap-learn`). También puede ser más prevalente con versiones muy nuevas de Python (ej. 3.13).
+*   **Soluciones:**
+    1.  **Usar `leidenalg` como Backend de Leiden:** La aplicación ahora usa `leidenalg` por defecto, lo cual ha demostrado ser más estable y evita este error en muchos casos. Puedes seleccionarlo en "Parámetros del Pipeline" -> "Clustering" -> "Backend Leiden".
+    2.  **Usar `init='random'` para UMAP:** La aplicación usa `'random'` como inicialización por defecto para UMAP, lo que también puede ayudar a evitar estos errores numéricos.
+    3.  **Ajustar el Entorno (Solución más robusta):** La mejor solución a largo plazo es usar un entorno Python más probado (ej. Python 3.10 o 3.11) e instalar una versión de NumPy anterior a la 2.0 (ej. `pip install "numpy<2.0"` o `pip install numpy~=1.26.0`). Esto generalmente requiere tener las herramientas de compilación de C++ adecuadas si pip necesita compilar NumPy desde el código fuente (ver siguiente punto).
+
+**P10: Error al intentar instalar `numpy<2.0` en Windows: `ERROR: Unknown compiler(s)` o similar.**
+*   **Causa:** Pip está intentando compilar NumPy desde el código fuente porque no encuentra una "wheel" precompilada para tu combinación de Python y Windows, y no tienes un compilador de C++ instalado o configurado.
+*   **Soluciones:**
+    1.  **Instalar Microsoft C++ Build Tools:** Descarga "Build Tools for Visual Studio" desde el sitio de Microsoft e instala la carga de trabajo "Desarrollo para el escritorio con C++". Reinicia tu terminal después.
+    2.  **Usar un Entorno Python Más Antiguo/Estable:** Crea un nuevo entorno virtual con Python 3.10 o 3.11. Es mucho más probable que `pip install "numpy<2.0"` encuentre una wheel precompilada para estas versiones.
+    3.  **Usar Conda:** Anaconda/Miniconda manejan muy bien las dependencias binarias y suelen proporcionar paquetes NumPy precompilados.
+
+**P11: Los plots de Gene Scoring o algunos plots del Explorador de Genes no aparecen.**
+*   **Verificar Datos de Entrada:** Asegúrate de que el score de genes se haya calculado correctamente (revisa los mensajes en la pestaña "Gene Scoring") y que la columna del score exista en los datos. Para el explorador, asegúrate de que los genes ingresados existan en el dataset (la app ahora ofrece sugerencias).
+*   **Errores Silenciosos:** Aunque no veas un error rojo en Streamlit, revisa la consola desde donde lanzaste `streamlit run ...` por si hay tracebacks o warnings de Matplotlib que puedan dar pistas.
+*   **Parámetros de Ploteo:** Valores extremos o combinaciones raras en los parámetros de "Personalización de Plots" podrían, en casos raros, afectar la renderización.
+
+  
 ## 6. Documentación Técnica (para Desarrolladores)
 
 Esta sección proporciona una visión general de la estructura del código, las dependencias clave y el flujo de datos dentro de la aplicación, dirigida a desarrolladores o usuarios avanzados que deseen comprender o modificar el script.
