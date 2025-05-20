@@ -172,7 +172,8 @@ default_values = {
     "umap_init_pos": "random",                  
     "umap_n_neighbors": 15,                     
     "umap_min_dist": 0.5,                       
-    "calc_umap_3d": False,                      
+    "calc_umap_3d": False,
+    "n_pcs_actually_used_in_pipeline": 30, # O un valor inicial razonable                      
     "plot_palette": "tab20",                 
     "plot_point_size": 30,                    
     "heatmap_top_n_genes": 3,                   
@@ -548,6 +549,10 @@ with st.sidebar:
                     print(f"DEBUG PCA: Shape adata_hvg_subset={n_obs_hvg}x{n_vars_hvg}, n_pcs_slider={st.session_state.n_pcs}")
 
                     current_n_pcs_val = int(st.session_state.n_pcs)
+                    print(f"DEBUG PCA: Usando n_comps={current_n_pcs_val}")
+                    st.session_state.n_pcs_actually_used_in_pipeline = current_n_pcs_val # <--- GUARDAR AQUÍ
+                    sc.tl.pca(st.session_state.adata_hvg_subset, svd_solver='arpack', n_comps=current_n_pcs_val, random_state=0)
+
                     limit_pcs = min(n_obs_hvg, n_vars_hvg)
                     if limit_pcs <= 1: raise ValueError(f"Dimensiones para PCA ({n_obs_hvg}x{n_vars_hvg}) muy pequeñas (min_dim <=1).")
                     valid_max_n_pcs = limit_pcs - 1 
@@ -776,27 +781,53 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
         if 'X_umap' not in adata_display.obsm:
             st.warning("UMAP 2D no calculado o falló. No se pueden mostrar plots UMAP 2D.")
         else:
-            st.subheader("UMAP 2D coloreado por Clústeres de Leiden")
+            st.subheader("UMAP 2D Interactivo por Clústeres de Leiden")
             if 'leiden_clusters' in adata_display.obs:
-                fig_umap_c_disp, ax_c_disp = plt.subplots(figsize=(7,6)) # figsize
-                sc.pl.umap(adata_display, color='leiden_clusters', legend_loc='on data', ax=ax_c_disp, show=False, 
-                           title=f"Res: {st.session_state.leiden_res}", size=st.session_state.plot_point_size, 
-                           palette=st.session_state.plot_palette if st.session_state.plot_palette != 'default' else None)
-                st.pyplot(fig_umap_c_disp)
-                st.download_button("UMAP 2D Clústeres (PNG)", fig_to_bytes(fig_umap_c_disp), "umap_clusters.png", key="dl_umc_final")
-                plt.close(fig_umap_c_disp)
-            else: st.warning("Clusters Leiden no encontrados para plot UMAP.")
+                try:
+                    umap_coords = adata_display.obsm['X_umap']
+                    df_umap = pd.DataFrame({
+                        'UMAP1': umap_coords[:, 0],
+                        'UMAP2': umap_coords[:, 1],
+                        'Cluster': adata_display.obs['leiden_clusters'].astype(str), # Plotly prefiere strings para categorías
+                        'Muestra': adata_display.obs.get('sample', pd.NA).astype(str), # Para hover
+                        'N_Genes': adata_display.obs.get('n_genes_by_counts', pd.NA) # Ejemplo de más info en hover
+                    })
 
-            if 'sample' in adata_display.obs:
-                st.subheader("UMAP 2D coloreado por Muestra")
-                fig_umap_s_disp, ax_s_disp = plt.subplots(figsize=(7,6))
-                sc.pl.umap(adata_display, color='sample', ax=ax_s_disp, show=False, title="Por Muestra", 
-                           size=st.session_state.plot_point_size, 
-                           palette=st.session_state.plot_palette if st.session_state.plot_palette != 'default' else None)
-                st.pyplot(fig_umap_s_disp)
-                st.download_button("UMAP 2D Muestra (PNG)", fig_to_bytes(fig_umap_s_disp), "umap_sample.png", key="dl_ums_final")
-                plt.close(fig_umap_s_disp)
-            
+                    # Crear el scatter plot con Plotly Express
+                    fig_umap_plotly = px.scatter(
+                        df_umap, 
+                        x='UMAP1', 
+                        y='UMAP2', 
+                        color='Cluster', # Colorear por clúster
+                        # Si quieres usar la paleta de Matplotlib seleccionada, necesitarías un mapeo:
+                        # color_discrete_map={cluster_id: color_hex for cluster_id, color_hex in zip(sorted(df_umap['Cluster'].unique()), plt.get_cmap(st.session_state.plot_palette).colors)},
+                        hover_data=['Muestra', 'N_Genes'], # Info adicional al pasar el ratón
+                        title=f"UMAP 2D Interactivo (Clusters Leiden, Res: {st.session_state.leiden_res})"
+                    )
+                    
+                    # Ajustar tamaño de puntos y opacidad si se desea
+                    point_size_plotly = max(1, int(st.session_state.plot_point_size / 10)) # Ajustar escala para Plotly
+                    fig_umap_plotly.update_traces(marker=dict(size=point_size_plotly, opacity=0.8))
+                    
+                    st.plotly_chart(fig_umap_plotly, use_container_width=True)
+
+                    # Opción de descarga HTML para el plot interactivo
+                    html_buffer_umap = io.StringIO()
+                    fig_umap_plotly.write_html(html_buffer_umap)
+                    st.download_button(
+                        label="Descargar UMAP Clústeres (HTML Interactivo)",
+                        data=html_buffer_umap.getvalue(),
+                        file_name="umap_clusters_interactive.html",
+                        mime="text/html",
+                        key="dl_umap_plotly_clusters"
+                    )
+                except Exception as e_umap_plotly_c:
+                    st.error(f"Error generando UMAP 2D interactivo por clústeres: {e_umap_plotly_c}")
+                    st.error(traceback.format_exc())
+            else: 
+                st.warning("Clusters Leiden no encontrados para plot UMAP.")
+                st.info("UMAP 2D fue seleccionado en parámetros pero no se pudo calcular o los datos necesarios ('X_umap', 'leiden_clusters') faltan.")
+
             # UMAP 3D
             if st.session_state.calc_umap_3d: # Solo intentar si el usuario lo pidió
                 if 'X_umap_3d' in adata_display.obsm and 'leiden_clusters' in adata_display.obs:
@@ -826,38 +857,54 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
                      st.info("UMAP 3D fue seleccionado en parámetros pero no se pudo calcular o los datos necesarios ('X_umap_3d', 'leiden_clusters') faltan.")
 
             # UMAPs Facetados
-            st.subheader("UMAPs 2D por Muestra (Coloreado por Clúster)")
-            if 'sample' in adata_display.obs and 'leiden_clusters' in adata_display.obs:
+            st.subheader("UMAPs 2D por Muestra (Facetado, Coloreado por Clúster)")
+            if 'sample' in adata_display.obs and 'leiden_clusters' in adata_display.obs and 'X_umap' in adata_display.obsm: # <--- CONDICIÓN 1
                 try:
                     unique_samples_facet_disp = sorted(adata_display.obs['sample'].astype('category').cat.categories.tolist())
                     n_samples_facet_disp = len(unique_samples_facet_disp)
-                    if n_samples_facet_disp > 0:
+                    
+                    if n_samples_facet_disp > 0: # <--- CONDICIÓN 2
                         cols_facet_disp = min(n_samples_facet_disp, 3)
                         rows_facet_disp = (n_samples_facet_disp + cols_facet_disp - 1) // cols_facet_disp
                         fig_facet_disp, axes_facet_disp = plt.subplots(rows_facet_disp, cols_facet_disp, 
                                                                     figsize=(cols_facet_disp * 5.5, rows_facet_disp * 5), squeeze=False)
                         axes_flat_facet_disp = axes_facet_disp.flatten()
-                        idx_facet_disp = 0 
+                        idx_facet_disp = 0 # Inicializar por si el bucle no se ejecuta
+                        
                         for idx_facet_disp, sample_val_facet_disp in enumerate(unique_samples_facet_disp):
                             if idx_facet_disp < len(axes_flat_facet_disp):
                                 ax_curr_facet_disp = axes_flat_facet_disp[idx_facet_disp]
-                                adata_subset_facet_disp = adata_display[adata_display.obs['sample'] == sample_val_facet_disp].copy()
-                                if not adata_subset_facet_disp.obs.empty and 'X_umap' in adata_subset_facet_disp.obsm: # Verificar X_umap
+                                adata_subset_facet_disp = adata_display[adata_display.obs['sample'] == sample_val_facet_disp].copy() # <--- CREA SUBSET
+                                
+                                if not adata_subset_facet_disp.obs.empty and 'X_umap' in adata_subset_facet_disp.obsm: # <--- CONDICIÓN 3 (para el subset)
                                     sc.pl.umap(adata_subset_facet_disp, color='leiden_clusters', ax=ax_curr_facet_disp, show=False, 
                                                title=f"Muestra: {sample_val_facet_disp}", 
                                                legend_loc='on data' if idx_facet_disp == 0 and n_samples_facet_disp > 1 else None, 
                                                legend_fontsize=6, size=st.session_state.plot_point_size, 
                                                palette=st.session_state.plot_palette if st.session_state.plot_palette != 'default' else None)
-                                elif not adata_subset_facet_disp.obs.empty:
-                                     ax_curr_facet_disp.text(0.5,0.5, f"M: {sample_val_facet_disp}\n(X_umap no disp.)", ha='center',va='center')
-                                else:
-                                    ax_curr_facet_disp.text(0.5, 0.5, f"M: {sample_val_facet_disp}\n(Sin células)", ha='center', va='center')
-                                ax_curr_facet_disp.set_xticks([]); ax_curr_facet_disp.set_yticks([])
-                        for j_ax_empty_disp in range(idx_facet_disp + 1, len(axes_flat_facet_disp)): fig_facet_disp.delaxes(axes_flat_facet_disp[j_ax_empty_disp])
-                        plt.tight_layout(); st.pyplot(fig_facet_disp)
-                        st.download_button("Descargar UMAPs Facetados (PNG)", fig_to_bytes(fig_facet_disp), "umaps_faceted.png", key="dl_umaps_facet_final")
+                                elif not adata_subset_facet_disp.obs.empty: # Si hay células pero no X_umap en el subset
+                                     ax_curr_facet_disp.text(0.5,0.5, f"M: {sample_val_facet_disp}\n(X_umap no disp.\nen subset)", ha='center',va='center', fontsize=8) # Mensaje más específico
+                                else: # Si el subset está vacío
+                                    ax_curr_facet_disp.text(0.5, 0.5, f"M: {sample_val_facet_disp}\n(Sin células\nen subset)", ha='center', va='center', fontsize=8)
+                                ax_curr_facet_disp.set_xticks([]); ax_curr_facet_disp.set_yticks([]) # Limpiar ejes vacíos o con texto
+                        
+                        # Ocultar ejes no usados
+                        for j_ax_empty_disp in range(idx_facet_disp + 1, len(axes_flat_facet_disp)): 
+                            fig_facet_disp.delaxes(axes_flat_facet_disp[j_ax_empty_disp])
+                        
+                        plt.tight_layout()
+                        st.pyplot(fig_facet_disp)
+                        st.download_button("Descargar UMAPs Facetados (PNG)", fig_to_bytes(fig_facet_disp), "umaps_faceted.png", key="dl_umaps_facet_final_v2") # Nueva key
                         plt.close(fig_facet_disp)
-                except Exception as e_facet_disp: st.error(f"Error UMAPs facetados: {e_facet_disp}")
+                except Exception as e_facet_disp: 
+                    st.error(f"Error UMAPs facetados: {e_facet_disp}")
+                    st.error(traceback.format_exc()) # Mostrar traceback
+            else: # Si falla la CONDICIÓN 1
+                missing_keys_facet = []
+                if 'sample' not in adata_display.obs: missing_keys_facet.append("'sample' en .obs")
+                if 'leiden_clusters' not in adata_display.obs: missing_keys_facet.append("'leiden_clusters' en .obs")
+                if 'X_umap' not in adata_display.obsm: missing_keys_facet.append("'X_umap' en .obsm")
+                st.warning(f"No se pueden generar UMAPs facetados. Faltan datos necesarios: {', '.join(missing_keys_facet)}.")
 
 
     with tab_markers_display:
@@ -1363,6 +1410,40 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
             st.write(f"Mostrando expresión para: **{', '.join(genes_to_visualize_list)}**")
             # UMAPs por Expresión Génica
             if 'X_umap' not in adata_display.obsm:
+             st.warning("Plots UMAP no disponibles (UMAP no calculado o falló).")
+            else:
+                st.markdown("#### UMAPs coloreados por Expresión Génica")
+                if genes_to_visualize_list: # Si hay genes en la lista
+                    selected_gene_for_interactive_umap = st.selectbox(
+                        "Selecciona un gen para UMAP Interactivo:", 
+                        options=genes_to_visualize_list,
+                        key="select_gene_interactive_umap"
+                    )
+                    if selected_gene_for_interactive_umap:
+                        try:
+                            umap_coords_ge = adata_display.obsm['X_umap']
+                            df_umap_ge = pd.DataFrame({
+                                'UMAP1': umap_coords_ge[:, 0],
+                                'UMAP2': umap_coords_ge[:, 1],
+                                'Expresión': adata_display[:, selected_gene_for_interactive_umap].X.toarray().flatten(), # Asegurar que es denso y 1D
+                                'Cluster': adata_display.obs.get('leiden_clusters', pd.NA).astype(str)
+                            })
+                            fig_umap_plotly_ge = px.scatter(
+                                df_umap_ge, x='UMAP1', y='UMAP2', color='Expresión',
+                                color_continuous_scale='viridis', # Para expresión continua
+                                hover_data=['Cluster'],
+                                title=f"UMAP 2D Interactivo: Expresión de {selected_gene_for_interactive_umap}"
+                            )
+                            point_size_plotly_ge = max(1, int(st.session_state.plot_point_size / 10))
+                            fig_umap_plotly_ge.update_traces(marker=dict(size=point_size_plotly_ge, opacity=0.8))
+                            st.plotly_chart(fig_umap_plotly_ge, use_container_width=True)
+                            # ... (botón de descarga HTML) ...
+                        except Exception as e_ge_plotly_umap:
+                            st.error(f"Error UMAP interactivo para gen {selected_gene_for_interactive_umap}: {e_ge_plotly_umap}")
+
+            st.markdown("---")
+            st.markdown("##### UMAPs Estáticos (Múltiples Genes)")             
+            if 'X_umap' not in adata_display.obsm:
                 st.warning("Plots UMAP no disponibles (UMAP no calculado o falló).")
             else:
                 st.markdown("#### UMAPs coloreados por Expresión Génica")
@@ -1504,8 +1585,10 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
                 st.info("No se encontraron genes seleccionados o clusters definidos para el dot plot.")
 
 
-    with tab_info_display:
-        st.subheader("Información del Dataset Procesado y Diagnóstico PCA")
+    with tab_info_display: # O como hayas llamado a la variable de tu pestaña de Info
+        st.subheader("Información del Dataset Procesado y Diagnóstico PCA") # Modifica el subheader si quieres
+        
+        # --- INFORMACIÓN BÁSICA DEL DATASET (COMO LA TENÍAS) ---
         st.write(f"Total de Células (post-QC): {adata_display.n_obs}")
         st.write(f"Total de Genes (post-QC): {adata_display.n_vars}")
         if st.session_state.adata_hvg_subset is not None: 
@@ -1516,56 +1599,81 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
         if 'leiden_clusters' in adata_display.obs:
             st.write("Distribución de células por clúster de Leiden:")
             st.dataframe(adata_display.obs['leiden_clusters'].value_counts().sort_index())
-        st.write("Primeras 5 filas de Metadatos de Células (`.obs`):"); st.dataframe(adata_display.obs.head())
-        st.write("Primeras 5 filas de Metadatos de Genes (`.var`):"); st.dataframe(adata_display.var.head())
-
         
-        if st.session_state.show_pca_variance: # NUEVO: Mostrar condicionalmente
-            if st.session_state.adata_hvg_subset is not None and \
-               'pca' in st.session_state.adata_hvg_subset.uns and \
-               'variance_ratio' in st.session_state.adata_hvg_subset.uns['pca']:
-                st.markdown("#### Varianza Explicada por Componentes Principales (sobre HVGs)")
-                try:
-                    variance_ratio_pca_info = st.session_state.adata_hvg_subset.uns['pca']['variance_ratio']
-                    fig_pca_var_plot_info, ax_pca_var_plot_info = plt.subplots(figsize=(8,5))
-                    ax_pca_var_plot_info.plot(range(1, len(variance_ratio_pca_info) + 1), variance_ratio_pca_info, marker='o', linestyle='--', color='dodgerblue', label='Varianza Individual')
-                    ax_pca_var_plot_info.plot(range(1, len(variance_ratio_pca_info) + 1), np.cumsum(variance_ratio_pca_info), marker='.', linestyle='-', color='orangered', label='Varianza Acumulada')
-                    ax_pca_var_plot_info.set_xlabel("Número de Componentes Principales")
-                    ax_pca_var_plot_info.set_ylabel("Proporción de Varianza Explicada")
-                    ax_pca_var_plot_info.set_title("Scree Plot - Varianza de PCA")
-                    ax_pca_var_plot_info.grid(True, linestyle=':', alpha=0.7)
-                    
-                    # Marcar el número de PCs seleccionado por el usuario
-                    # Obtener el valor de n_pcs que realmente se usó en el pipeline (puede haber sido ajustado)
-                    # Esto es un poco más complejo porque current_n_pcs_val está en el scope del pipeline.
-                    # Una forma es guardarlo en session_state si se ajustó, o simplemente usar st.session_state.n_pcs
-                    # Aquí, por simplicidad, usaremos el valor del slider, pero idealmente sería el valor usado.
-                    pcs_used_in_pipeline = st.session_state.n_pcs 
-                    if 'X_pca_hvg' in adata_display.obsm: # Si se transfirió el PCA
-                         pcs_used_in_pipeline = adata_display.obsm['X_pca_hvg'].shape[1]
+        # --- INICIO: PLOT DE VARIANZA PCA (ELBOW PLOT) ---
+        if st.session_state.get("show_pca_variance", True): # Usar .get para default si la clave no existiera
+            st.markdown("---") 
+            st.markdown("#### Diagnóstico de Componentes Principales (PCA)")
+            
+            # Usar el adata_hvg_subset donde se calculó PCA
+            adata_for_pca_diagnosis = st.session_state.adata_hvg_subset 
+            
+            if adata_for_pca_diagnosis is not None and \
+               'pca' in adata_for_pca_diagnosis.uns and \
+               'variance_ratio' in adata_for_pca_diagnosis.uns['pca']:
+                
+                variance_ratio_data_pca = adata_for_pca_diagnosis.uns['pca']['variance_ratio']
+                n_pcs_calculated_pca = len(variance_ratio_data_pca)
+                
+                # Obtener el número de PCs que el pipeline realmente usó
+                pcs_actually_used_pca = st.session_state.get("n_pcs_actually_used_in_pipeline", st.session_state.n_pcs)
 
+                col_elbow_pca, col_cumvar_pca = st.columns(2)
 
-                    ax_pca_var_plot_info.axvline(x=pcs_used_in_pipeline, color='darkgreen', linestyle=':', linewidth=2, label=f'PCs Usados ({pcs_used_in_pipeline})')
-                    ax_pca_var_plot_info.legend() 
+                with col_elbow_pca:
+                    st.markdown("##### Varianza Explicada por cada PC")
+                    fig_elbow_plot_pca, ax_elbow_plot_pca = plt.subplots(figsize=(7,4))
+                    ax_elbow_plot_pca.plot(range(1, n_pcs_calculated_pca + 1), variance_ratio_data_pca, marker='o', linestyle='-', color='dodgerblue')
+                    ax_elbow_plot_pca.set_xlabel("Componente Principal")
+                    ax_elbow_plot_pca.set_ylabel("Proporción de Varianza Explicada")
+                    ax_elbow_plot_pca.set_title("Elbow Plot para Selección de PCs")
+                    ax_elbow_plot_pca.grid(True, linestyle=':', alpha=0.7)
+                    ax_elbow_plot_pca.axvline(x=pcs_actually_used_pca, color='red', linestyle='--', 
+                                              label=f'PCs Usados: {pcs_actually_used_pca}')
+                    ax_elbow_plot_pca.legend()
+                    st.pyplot(fig_elbow_plot_pca)
+                    plt.close(fig_elbow_plot_pca)
 
-                    st.pyplot(fig_pca_var_plot_info)
-                    plt.close(fig_pca_var_plot_info)
+                with col_cumvar_pca:
+                    st.markdown("##### Varianza Acumulada Explicada")
+                    cumulative_variance_pca = np.cumsum(variance_ratio_data_pca)
+                    fig_cumvar_plot_pca, ax_cumvar_plot_pca = plt.subplots(figsize=(7,4))
+                    ax_cumvar_plot_pca.plot(range(1, n_pcs_calculated_pca + 1), cumulative_variance_pca, marker='.', linestyle='-', color='orangered')
+                    ax_cumvar_plot_pca.set_xlabel("Número de Componentes Principales")
+                    ax_cumvar_plot_pca.set_ylabel("Varianza Acumulada Explicada")
+                    ax_cumvar_plot_pca.set_title("Varianza Acumulada de PCA")
+                    ax_cumvar_plot_pca.grid(True, linestyle=':', alpha=0.7)
+                    ax_cumvar_plot_pca.axhline(y=0.9, color='grey', linestyle=':', label='90% Varianza')
+                    ax_cumvar_plot_pca.axhline(y=0.8, color='lightgrey', linestyle=':', label='80% Varianza')
+                    ax_cumvar_plot_pca.axvline(x=pcs_actually_used_pca, color='red', linestyle='--', 
+                                               label=f'PCs Usados: {pcs_actually_used_pca}')
+                    ax_cumvar_plot_pca.legend()
+                    st.pyplot(fig_cumvar_plot_pca)
+                    plt.close(fig_cumvar_plot_pca)
 
-                    df_pca_variance_info = pd.DataFrame({
-                        'PC': range(1, len(variance_ratio_pca_info) + 1),
-                        'Varianza Individual': variance_ratio_pca_info,
-                        'Varianza Acumulada': np.cumsum(variance_ratio_pca_info)
-                    })
-                    st.dataframe(df_pca_variance_info.head(max(15, pcs_used_in_pipeline + 5)))
-                except Exception as e_pca_plot_info:
-                    st.error(f"Error generando plot de varianza PCA: {e_pca_plot_info}")
+                # Mostrar tabla de varianza (opcional)
+                # df_pca_variance_table_info = pd.DataFrame({
+                #     'PC': range(1, n_pcs_calculated_pca + 1),
+                #     'Varianza Individual': variance_ratio_data_pca,
+                #     'Varianza Acumulada': cumulative_variance_pca
+                # })
+                # st.markdown("##### Tabla de Varianza por PC (primeros PCs)")
+                # st.dataframe(df_pca_variance_table_info.head(max(20, pcs_actually_used_pca + 5)))
             else:
-                st.info("Datos de varianza PCA no disponibles.")
-                st.info("Asegúrate de que el PCA se ha calculado y los resultados están en `adata.uns['pca']`.")
-                st.info("Si el PCA no se ha calculado, asegúrate de que el número de PCs es mayor que 0 y que el PCA se ha ejecutado correctamente.")
+                st.info("Datos de varianza PCA no disponibles. Ejecuta el pipeline principal y asegúrate de que el PCA se calcule sobre 'adata_hvg_subset'.")
+        elif not st.session_state.get("show_pca_variance", True) and st.session_state.analysis_done : # Si el análisis se hizo pero el usuario desactivó el plot
+             st.info("La visualización de la varianza PCA está desactivada en la configuración de la sidebar ('Personalización de Plots').")
+        # --- FIN: PLOT DE VARIANZA PCA ---
 
-        
-        # ... (resto de la info del dataset) ...
+        st.markdown("---") # Separador
+        st.write("Primeras 5 filas de Metadatos de Células (`.obs`):")
+        st.dataframe(adata_display.obs.head())
+        st.write("Primeras 5 filas de Metadatos de Genes (`.var`):")
+        st.dataframe(adata_display.var.head())
+ 
+        st.markdown("---") # Separador
+        st.write("Si necesitas más información, revisa el objeto `adata` completo en la consola de Streamlit.")
+        st.info("Recuerda que puedes descargar los resultados de cada paso del pipeline desde la sidebar.")
 
 else: # Si el análisis no se ha completado
     # Recalcular all_files_provided aquí para este scope
@@ -1649,6 +1757,7 @@ st.sidebar.markdown("**Versión:** 1.1")
 st.sidebar.markdown("**Última Actualización:** 2025-05-20")
 st.sidebar.markdown("**Notas:** Esta aplicación es un prototipo y puede contener errores. Usa bajo tu propio riesgo.")
 st.sidebar.markdown("**Disclaimer:** Esta aplicación es un prototipo y puede contener errores. Usa bajo tu propio riesgo.")
+
 
 
 
