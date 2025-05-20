@@ -962,6 +962,693 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
                         if 'X_pca_hvg' in adata_for_heatmap.obsm:
                             print(f"DEBUG Heatmap: Usando 'X_pca_hvg' para el dendrograma, guardando en '{default_dendrogram_key}'.")
                             sc.tl.dendrogram(
+                                adata_for_heatmap, 
+                                groupby='leiden_clusters', 
+                                use_rep='X_pca_hvg', 
+                                key_added=default_dendrogram_key
+                            )
+                            dendrogram_calculated_successfully = default_dendrogram_key in adata_for_heatmap.uns
+                        elif 'X_pca' in adata_for_heatmap.obsm : 
+                            print(f"DEBUG Heatmap: Usando 'X_pca' para el dendrograma, guardando en '{default_dendrogram_key}'.")
+                            sc.tl.dendrogram(
+                                adata_for_heatmap, 
+                                groupby='leiden_clusters', 
+                                use_rep='X_pca', 
+                                key_added=default_dendrogram_key
+                            )
+                            dendrogram_calculated_successfully = default_dendrogram_key in adata_for_heatmap.uns
+                        else:
+                            print("DEBUG Heatmap: No se encontró X_pca_hvg o X_pca. No se calculará dendrograma explícito para sc.pl.heatmap.")
+                        
+                        print(f"DEBUG Heatmap: dendrogram_calculated_successfully = {dendrogram_calculated_successfully}")
+
+                        # --- Lógica de ploteo del Heatmap ---
+                        if dendrogram_calculated_successfully:
+                            print("DEBUG Heatmap: Dendrograma calculado. Ploteando CON dendrograma (método gcf).")
+                            try:
+                                # Crear una NUEVA figura para que Scanpy dibuje en ella
+                                plt.figure(figsize=(10, max(6, len(genes_present_in_adata_for_heatmap) * 0.35)))
+                                sc.pl.heatmap(
+                                    adata_for_heatmap,
+                                    genes_present_in_adata_for_heatmap,
+                                    groupby='leiden_clusters',
+                                    cmap=st.session_state.plot_palette if st.session_state.plot_palette != 'default' else None,
+                                    standard_scale='var',
+                                    dendrogram=True, # Debería encontrar la clave por defecto
+                                    show=False
+                                    # NO pasar 'ax' ni 'save'
+                                )
+                                fig_heatmap_actual = plt.gcf() # Obtener la figura actual
+                                # plt.tight_layout() # Probar con y sin, por si causa problemas
+                                st.pyplot(fig_heatmap_actual)
+                                
+                                bytes_img_heatmap = fig_to_bytes(fig_heatmap_actual)
+                                st.download_button(
+                                    "Descargar Heatmap Marcadores (PNG)",
+                                    bytes_img_heatmap,
+                                    "heatmap_markers.png", "image/png",
+                                    key="dl_heatmap_markers_gcf_final_v3"
+                                )
+                                plt.close(fig_heatmap_actual)
+                            except Exception as e_hm_gcf:
+                                st.error(f"Error generando heatmap con método gcf: {e_hm_gcf}")
+                                st.error(traceback.format_exc())
+
+
+                        else: # Si no hay dendrograma, podemos usar 'ax' de forma segura
+                            st.info("No se pudo calcular el dendrograma (probablemente falta X_pca_hvg). Mostrando heatmap sin dendrograma.")
+                            fig_heatmap_no_dendro, ax_heatmap_no_dendro = plt.subplots(figsize=(10, max(6, len(genes_present_in_adata_for_heatmap) * 0.3)))
+                            sc.pl.heatmap(
+                                adata_for_heatmap, 
+                                genes_present_in_adata_for_heatmap, 
+                                groupby='leiden_clusters', 
+                                cmap=st.session_state.plot_palette, 
+                                standard_scale='var', 
+                                dendrogram=False, # Forzar a False
+                                ax=ax_heatmap_no_dendro, 
+                                show=False
+                            )
+                            st.pyplot(fig_heatmap_no_dendro)
+                            st.download_button("Descargar Heatmap (sin dendro) (PNG)", fig_to_bytes(fig_heatmap_no_dendro), "heatmap_no_dendro.png", key="dl_heatmap_no_dendro_png_v2")
+                            plt.close(fig_heatmap_no_dendro)
+
+                except Exception as e_heatmap_tab:
+                    st.error(f"Error generando heatmap: {e_heatmap_tab}")
+                    st.error(traceback.format_exc())
+            else:
+                st.info("No hay genes marcadores seleccionados para el heatmap.")
+        else:
+            st.info("No se han calculado genes marcadores.")
+    
+
+    with tab_gene_scoring_display:
+        print("\n--- DEBUG: Inicio Pestaña Gene Scoring ---")
+        print(f"adata_display.obs columns: {adata_display.obs.columns.tolist()}")
+        print(f"adata_display.obsm keys: {list(adata_display.obsm.keys())}")
+        #if score_to_visualize_selected in adata_display.obs: # Asumiendo que score_to_visualize_selected está definido
+        #    print(f"Score '{score_to_visualize_selected}' dtype en Gene Scoring Tab: {adata_display.obs[score_to_visualize_selected].dtype}")
+        st.subheader("Análisis de Scoring de Listas de Genes")
+        st.write("""
+        Esta sección permite calcular y visualizar un 'score' agregado para una o más listas de genes
+        (firmas génicas) proporcionadas por el usuario. Es útil para investigar la actividad de programas
+        génicos específicos o la presencia de tipos celulares definidos por conjuntos de marcadores.
+        """)
+        
+        # Widgets para la entrada del usuario
+        st.session_state.gene_score_user_lists_input = st.text_area(
+            "Introduce tus listas de genes/firmas (una por línea):",
+            value=st.session_state.gene_score_user_lists_input,
+            height=200,
+            key="gene_score_user_lists_ta_final_v2", # Key actualizada
+            help="Formato: NombreFirma: GEN1,GEN2,...\nLos genes pueden estar separados por coma o espacio. Las líneas que empiezan con '#' son ignoradas."
+        )
+        st.session_state.gene_score_name_input = st.text_input( # Esta clave sí estaba en default_values
+            "Nombre para la columna del Score (ej: LinfocitosT_Score):", 
+            value=st.session_state.gene_score_name_input, # Usar la clave correcta de session_state
+            key="gene_score_name_ti_final_v2" # Key del widget
+        )
+
+        if st.button("Calcular Scores de Firmas Génicas", key="calc_all_gene_scores_btn_v3"): # Key actualizada
+            if not st.session_state.gene_score_user_lists_input.strip(): # Usar la clave correcta de session_state
+                st.warning("Por favor, introduce al menos una lista de genes con su nombre.")
+            else:
+                parsed_gene_lists_gs = {} # Renombrar para evitar conflicto
+                found_any_valid_genes_gs = False
+
+                for line_gs in st.session_state.gene_score_user_lists_input.splitlines(): # Usar la clave correcta
+                    line_gs = line_gs.strip()
+                    if not line_gs or line_gs.startswith('#'): continue
+                    
+                    parts_gs = line_gs.split(':', 1)
+                    if len(parts_gs) != 2:
+                        st.error(f"Línea mal formateada: '{line_gs}'.\nFormato esperado: 'NombreDeLaFirma: GENE1, GENE2,...'\nAsegúrate de incluir un nombre para la firma seguido de ':' y luego la lista de genes.")
+                        continue
+                    
+                    score_name_raw_gs = parts_gs[0].strip()
+                    score_name_col_gs = "".join(c if c.isalnum() or c == '_' else '_' for c in score_name_raw_gs).strip('_')
+                    if not score_name_col_gs: 
+                        score_name_col_gs = f"score_{pd.Timestamp.now().strftime('%H%M%S%f')}" # Más único
+                        st.warning(f"Nombre de firma '{score_name_raw_gs}' inválido, usando '{score_name_col_gs}'.")
+
+                    genes_str_gs = parts_gs[1].strip()
+                    genes_in_list_raw_gs = [g.strip() for g in genes_str_gs.replace(',', ' ').split() if g.strip()]
+
+                    if not genes_in_list_raw_gs:
+                        st.warning(f"La firma '{score_name_raw_gs}' no contiene genes.")
+                        continue
+
+                    current_valid_genes_gs = []
+                    current_not_found_gs = []
+                    # valid_genes_lower_map_display debe estar definido si estamos dentro del if principal
+                    if not valid_genes_lower_map_display:
+                         st.error("Mapa de genes no disponible para validación.") # No debería ocurrir aquí
+                    else:
+                        for g_raw_gs in genes_in_list_raw_gs:
+                            g_lower_gs = g_raw_gs.lower()
+                            if g_lower_gs in valid_genes_lower_map_display:
+                                current_valid_genes_gs.append(valid_genes_lower_map_display[g_lower_gs])
+                            else:
+                                current_not_found_gs.append(g_raw_gs)
+                    
+                    if current_not_found_gs:
+                        st.warning(f"Para firma '{score_name_raw_gs}': Genes no encontrados -> {', '.join(current_not_found_gs)}")
+                    
+                    if current_valid_genes_gs:
+                        parsed_gene_lists_gs[score_name_col_gs] = current_valid_genes_gs
+                        found_any_valid_genes_gs = True
+                    else:
+                        st.error(f"Ningún gen válido para firma '{score_name_raw_gs}'.")
+                
+                if found_any_valid_genes_gs:
+                    with st.spinner("Calculando scores..."):
+                        adata_for_scoring_gs = st.session_state.adata_processed # Trabajar sobre el procesado
+                        
+                        for score_col_loop, gene_l_loop in parsed_gene_lists_gs.items():
+                            try:
+                                sc.tl.score_genes(
+                                    adata_for_scoring_gs, 
+                                    gene_list=gene_l_loop, 
+                                    score_name=score_col_loop, 
+                                    random_state=0, use_raw=False
+                                )
+                                st.success(f"Score '{score_col_loop}' calculado y añadido a `adata.obs`.")
+                                if score_col_loop not in st.session_state.gene_scores_calculated:
+                                    st.session_state.gene_scores_calculated[score_col_loop] = "Calculado"
+                                # Actualizar explícitamente el AnnData en session_state
+                                st.session_state.adata_processed = adata_for_scoring_gs 
+                            except Exception as e_score_calc_gs:
+                                st.error(f"Error calculando score para '{score_col_loop}': {e_score_calc_gs}")
+                                st.session_state.gene_scores_calculated[score_col_loop] = f"Error: {e_score_calc_gs}"
+                        st.rerun() 
+                else:
+                    st.error("No se encontraron listas de genes válidas para calcular scores.")
+
+        # --- Visualización de los scores calculados ---
+        st.markdown("---")
+        st.subheader("Visualizar Scores de Firmas Calculadas")
+        
+        calculated_score_options = [
+            sc_name for sc_name, status in st.session_state.get("gene_scores_calculated", {}).items() 
+            if status == "Calculado" and sc_name in adata_display.obs.columns
+        ]
+
+        if not calculated_score_options:
+            st.info("No hay scores calculados disponibles para visualizar. Por favor, calcula un score primero.")
+        else:
+            score_name_from_input_gs = st.session_state.gene_score_name_input.strip() # Nombre del último text input
+            default_selection_idx_gs = 0
+            if score_name_from_input_gs in calculated_score_options:
+                default_selection_idx_gs = calculated_score_options.index(score_name_from_input_gs)
+
+            score_to_visualize_selected = st.selectbox(
+                "Selecciona un score calculado para visualizar:", 
+                options=calculated_score_options,
+                index=default_selection_idx_gs,
+                key="select_score_to_viz_final_v3" # Nueva key
+            )
+
+            if score_to_visualize_selected:
+                st.markdown(f"#### Visualización del Score: **{score_to_visualize_selected}**")
+                
+                # --- DEBUG ANTES DE PLOTS DE SCORE ---
+                print(f"\n--- DEBUG: Visualizando Score: {score_to_visualize_selected} ---")
+                if score_to_visualize_selected not in adata_display.obs.columns:
+                    st.error(f"Error interno: El score seleccionado '{score_to_visualize_selected}' no se encuentra en adata_display.obs.")
+                    print(f"ERROR: Score '{score_to_visualize_selected}' no en adata_display.obs. Columnas: {adata_display.obs.columns.tolist()}")
+                    # No continuar con los plots si el score no existe
+                else:
+                    print(f"Valores del score '{score_to_visualize_selected}' (primeros 5): {adata_display.obs[score_to_visualize_selected].head().tolist()}")
+                    print(f"Tipo de datos del score: {adata_display.obs[score_to_visualize_selected].dtype}")
+                    print(f"Hay NaNs en el score?: {adata_display.obs[score_to_visualize_selected].isnull().any()}")
+                    print(f"Hay Infs en el score?: {np.isinf(adata_display.obs[score_to_visualize_selected]).any()}")
+                
+                    col_score_viz1_disp_gs, col_score_viz2_disp_gs = st.columns(2) # Nombres de variables únicos
+                    
+                    with col_score_viz1_disp_gs:
+                        if 'X_umap' in adata_display.obsm:
+                            st.markdown("##### Score en UMAP 2D")
+                            print(f"DEBUG UMAP 2D Score: Intentando plotear score '{score_to_visualize_selected}'")
+                            fig_s_u2d_gs_plot = None # Inicializar por si falla la creación
+                            try:
+                                # Crear figura y eje
+                                fig_s_u2d_gs_plot, ax_s_u2d_gs_plot = plt.subplots(figsize=(7,6)) # Un figsize un poco más grande
+
+                                # Llamada simplificada a sc.pl.umap
+                                sc.pl.umap(
+                                    adata_display, 
+                                    color=score_to_visualize_selected, 
+                                    ax=ax_s_u2d_gs_plot, 
+                                    show=False,
+                                    legend_loc=None, # Quitar leyenda si no es necesaria para un score continuo
+                                    cmap='viridis' # Forzar un cmap conocido
+                                    # Quitar size y palette temporalmente
+                                )
+                                ax_s_u2d_gs_plot.set_title(f"Score: {score_to_visualize_selected}", fontsize=12)
+                                
+                                # Intentar st.pyplot ANTES de tight_layout
+                                st.pyplot(fig_s_u2d_gs_plot) 
+                                print(f"DEBUG UMAP 2D Score: st.pyplot para '{score_to_visualize_selected}' ejecutado.")
+
+                                # plt.tight_layout() # Comentar temporalmente si da warnings
+                                
+                            except Exception as e_sup2d_detailed:
+                                st.error(f"Error DETALLADO UMAP 2D para score '{score_to_visualize_selected}': {e_sup2d_detailed}")
+                                st.error(traceback.format_exc()) # Mostrar el traceback completo
+                            finally:
+                                if fig_s_u2d_gs_plot is not None: # Solo cerrar si la figura fue creada
+                                    plt.close(fig_s_u2d_gs_plot)
+                                    print(f"DEBUG UMAP 2D Score: Figura para '{score_to_visualize_selected}' cerrada.")
+                        else:
+                            st.warning("Coordenadas UMAP 2D no disponibles para plotear score.")
+                    
+                    with col_score_viz2_disp_gs:
+                        if 'leiden_clusters' in adata_display.obs:
+                            st.markdown("##### Score en Violín por Clúster")
+                            print(f"DEBUG Violín Score: Intentando plotear score '{score_to_visualize_selected}'")
+                            fig_s_vln_gs_plot = None # Inicializar
+                            try:
+                                n_clusters_vln_score = adata_display.obs['leiden_clusters'].nunique()
+                                fig_s_vln_gs_plot, ax_s_vln_gs_plot = plt.subplots(figsize=(max(6, n_clusters_vln_score * 0.8), 5))
+
+                                sc.pl.violin(
+                                    adata_display, 
+                                    keys=score_to_visualize_selected, 
+                                    groupby='leiden_clusters', 
+                                    rotation=45, 
+                                    ax=ax_s_vln_gs_plot, 
+                                    show=False,
+                                    use_raw=False,
+                                    cut=0
+                                    # Quitar title de aquí
+                                )
+                                ax_s_vln_gs_plot.set_title(f"Score: {score_to_visualize_selected} por Clúster", fontsize=10)
+                                
+                                st.pyplot(fig_s_vln_gs_plot)
+                                print(f"DEBUG Violín Score: st.pyplot para '{score_to_visualize_selected}' ejecutado.")
+                                
+                                # plt.tight_layout() # Comentar temporalmente
+
+                            except Exception as e_svln_detailed:
+                                st.error(f"Error DETALLADO Violín para score '{score_to_visualize_selected}': {e_svln_detailed}")
+                                st.error(traceback.format_exc())
+                            finally:
+                                if fig_s_vln_gs_plot is not None:
+                                    plt.close(fig_s_vln_gs_plot)
+                                    print(f"DEBUG Violín Score: Figura para '{score_to_visualize_selected}' cerrada.")
+                        else:
+                            st.warning("Clusters Leiden no disponibles para plotear score en violín.")
+
+                    if st.session_state.calc_umap_3d:
+                        if 'X_umap_3d' in adata_display.obsm:
+                            st.markdown(f"##### Score '{score_to_visualize_selected}' en UMAP 3D")
+                            try:
+                                umap_3d_coords_score_plot = adata_display.obsm['X_umap_3d']
+                                df_umap3d_gene_score_plot = pd.DataFrame({ # Nombres de variables únicos
+                                    'UMAP1': umap_3d_coords_score_plot[:, 0],
+                                    'UMAP2': umap_3d_coords_score_plot[:, 1],
+                                    'UMAP3': umap_3d_coords_score_plot[:, 2],
+                                    score_to_visualize_selected: adata_display.obs[score_to_visualize_selected],
+                                    'Cluster': adata_display.obs.get('leiden_clusters', pd.NA).astype(str),
+                                    'Muestra': adata_display.obs.get('sample', pd.NA).astype(str)
+                                })
+                                n_clusters_3d_score_plot = adata_display.obs.get('leiden_clusters', pd.Series(dtype=str)).nunique()
+                                color_seq_3d_score = px.colors.qualitative.Plotly if st.session_state.plot_palette == "default" or n_clusters_3d_score_plot > len(px.colors.qualitative.Plotly) else getattr(px.colors.qualitative, st.session_state.plot_palette, px.colors.qualitative.Plotly)
+                                
+                                fig_3d_gene_score_plot = px.scatter_3d( # Nombres de variables únicos
+                                    df_umap3d_gene_score_plot, x='UMAP1', y='UMAP2', z='UMAP3',
+                                    color=score_to_visualize_selected, color_continuous_scale='viridis', # Usar viridis para score continuo
+                                    hover_data=['Muestra', 'Cluster', score_to_visualize_selected],
+                                    title=f"UMAP 3D - Score: {score_to_visualize_selected}"
+                                )
+                                marker_size_3d_score_plot = max(1, int(st.session_state.plot_point_size / 15))
+                                fig_3d_gene_score_plot.update_traces(marker=dict(size=marker_size_3d_score_plot))
+                                st.plotly_chart(fig_3d_gene_score_plot, use_container_width=True)
+                            except Exception as e_plot3d_score_tab_plot: # Nombres de variables únicos
+                                st.error(f"Error UMAP 3D para score '{score_to_visualize_selected}': {e_plot3d_score_tab_plot}")
+                                st.error(traceback.format_exc())
+                        elif score_to_visualize_selected: # Si calc_umap_3d es True pero X_umap_3d no está
+                            st.info(f"UMAP 3D fue seleccionado pero sus coordenadas no están disponibles para visualizar el score '{score_to_visualize_selected}'.")
+            # No se necesita un 'else' aquí porque el selectbox siempre tendrá un valor si calculated_score_options no está vacío.
+            
+            elif st.session_state.gene_score_user_lists_input.strip() and score_name_from_input_gs: # score_name_from_input_gs es el del text_input
+                # Este elif se activa si el usuario ha escrito algo en los inputs pero NO hay scores calculados válidos.
+                # O si el score que está en el input text no se pudo calcular.
+                if score_name_from_input_gs not in calculated_score_options: # Y no está entre los calculados con éxito
+                    st.info(f"El score '{score_name_from_input_gs}' no se encuentra en los datos o no se pudo calcular. Verifica los mensajes de error/warning arriba o calcúlalo.")
+ 
+    with tab_qc_display:
+        st.subheader("Plots de Control de Calidad (Post-Filtrado)")
+        if 'sample' in adata_display.obs:
+            qc_metrics_list = ['n_genes_by_counts', 'total_counts', 'pct_counts_mt']
+            qc_titles_display = ["Nº Genes Detectados por Célula", "Nº Total de Cuentas por Célula", "% Cuentas Mitocondriales"]
+            for metric_key, metric_title in zip(qc_metrics_list, qc_titles_display):
+                if metric_key in adata_display.obs.columns:
+                    st.markdown(f"#### {metric_title} (por Muestra)")
+                    try:
+                        n_samples_qc = adata_display.obs['sample'].nunique()
+                        fig_qc_violin, ax_qc_violin = plt.subplots(figsize=(max(6, n_samples_qc * 1.2), 5))
+                        sc.pl.violin(adata_display, keys=metric_key, groupby='sample', rotation=45, ax=ax_qc_violin, show=False, cut=0, use_raw=False)
+                        ax_qc_violin.set_xlabel("Muestra"); plt.tight_layout(); st.pyplot(fig_qc_violin)
+                        st.download_button(f"Descargar {metric_title.replace(' ', '_')} (PNG)", fig_to_bytes(fig_qc_violin), f"qc_violin_{metric_key}.png", "image/png", key=f"dl_qc_vln_{metric_key}_v3")
+                        plt.close(fig_qc_violin)
+                    except Exception as e_qc_plot: st.error(f"Error violin QC para {metric_title}: {e_qc_plot}")
+                else: st.warning(f"Métrica QC '{metric_key}' no encontrada.")
+        else: st.warning("Columna 'sample' no encontrada para plots de QC.")
+
+    with tab_dea_display:
+        st.subheader("Resultados del Análisis de Expresión Diferencial")
+        if st.session_state.dea_results_df is not None and not st.session_state.dea_results_df.empty:
+            st.markdown(f"**Comparación Actual:** `{st.session_state.dea_comparison_str}`")
+            
+            # --- Configuración de Columnas para st.data_editor ---
+            column_config_dea = {
+                "P-Value": st.column_config.NumberColumn(
+                    "P-Valor",
+                    format="%.2e", # Notación científica
+                    help="P-valor crudo."
+                ),
+                "P-Value Adj": st.column_config.NumberColumn(
+                    "P-Valor Ajustado",
+                    format="%.2e", # Notación científica
+                    help="P-valor ajustado por múltiples comparaciones."
+                ),
+                "Scores": st.column_config.NumberColumn( # 'Scores' en plural como en tu DataFrame
+                    "Score",
+                    format="%.3f"
+                ),
+                "Log2FC": st.column_config.NumberColumn(
+                    "Log2 Fold Change",
+                    format="%.3f"
+                ),
+                "Gene": st.column_config.TextColumn("Gen")
+            }
+
+            st.data_editor(
+                st.session_state.dea_results_df.head(st.session_state.dea_n_genes_display), # Muestra N genes
+                height=400, 
+                use_container_width=True, 
+                num_rows="dynamic", # Para ver más de los N genes si se desea
+                column_config=column_config_dea,
+                key="dea_results_data_editor_final_v2" # Key nueva
+            )
+        elif st.session_state.analysis_done:
+            st.info("No hay resultados de DEA. Ejecuta el análisis desde la sidebar si es necesario.")
+
+
+    with tab_gene_explorer_display:
+        st.subheader("Visualización de Expresión para Genes Específicos")
+        if not genes_to_visualize_list: 
+            st.info("Ingresa nombres de genes válidos para visualizarlos.")
+        else:
+            st.write(f"Mostrando expresión para: **{', '.join(genes_to_visualize_list)}**")
+            # UMAPs por Expresión Génica
+            if 'X_umap' not in adata_display.obsm:
+                st.warning("Plots UMAP no disponibles (UMAP no calculado o falló).")
+            else:
+                st.markdown("#### UMAPs coloreados por Expresión Génica")
+                n_genes_umap_plot_exp = len(genes_to_visualize_list) # Usar la variable correcta
+                cols_genes_umap_exp = min(n_genes_umap_plot_exp, 3)
+                rows_genes_umap_exp = (n_genes_umap_plot_exp + cols_genes_umap_exp - 1) // cols_genes_umap_exp
+                
+                if n_genes_umap_plot_exp > 0:
+                    fig_ge_umaps_exp, axes_ge_umaps_exp = plt.subplots(
+                        rows_genes_umap_exp, 
+                        cols_genes_umap_exp, 
+                        figsize=(cols_genes_umap_exp * 5, rows_genes_umap_exp * 4.5), 
+                        squeeze=False
+                    )
+                    axes_flat_ge_umaps_exp = axes_ge_umaps_exp.flatten()
+                    idx_ge_plot_exp = 0 
+                    for idx_ge_plot_exp, gene_name_plot_exp in enumerate(genes_to_visualize_list): # Usar la variable correcta
+                        if idx_ge_plot_exp < len(axes_flat_ge_umaps_exp):
+                            ax_ge_curr_exp = axes_flat_ge_umaps_exp[idx_ge_plot_exp]
+                            try:
+                                sc.pl.umap(adata_display, color=gene_name_plot_exp, ax=ax_ge_curr_exp, 
+                                           show=False, title=gene_name_plot_exp, cmap='viridis', 
+                                           use_raw=False, size=st.session_state.plot_point_size)
+                            except Exception as e_ge_umap_plot_exp: 
+                                ax_ge_curr_exp.text(0.5, 0.5, f"Error plot\n{gene_name_plot_exp}", ha='center', va='center', color='red')
+                                ax_ge_curr_exp.set_xticks([]); ax_ge_curr_exp.set_yticks([])
+                                print(f"Error ploteando UMAP para gen {gene_name_plot_exp}: {e_ge_umap_plot_exp}") 
+                    
+                    for j_ge_empty_ax_exp in range(idx_ge_plot_exp + 1, len(axes_flat_ge_umaps_exp)): 
+                        fig_ge_umaps_exp.delaxes(axes_flat_ge_umaps_exp[j_ge_empty_ax_exp])
+                    
+                    plt.tight_layout()
+                    st.pyplot(fig_ge_umaps_exp)
+                    st.download_button("Descargar UMAPs de Genes (PNG)", fig_to_bytes(fig_ge_umaps_exp), 
+                                       "gene_explorer_umaps.png", "image/png", key="dl_ge_umaps_png_final") # Key actualizada
+                    plt.close(fig_ge_umaps_exp)
+            
+            # --- VIOLINES POR CLÚSTER (CORREGIDO) ---
+            if 'leiden_clusters' in adata_display.obs and genes_to_visualize_list: # Usar la variable correcta
+                st.markdown("#### Diagramas de Violín por Clúster de Leiden")
+                
+                n_genes_vln_cl_exp = len(genes_to_visualize_list) # Usar la variable correcta
+                cols_vln_cl_exp = min(2, n_genes_vln_cl_exp) 
+                rows_vln_cl_exp = (n_genes_vln_cl_exp + cols_vln_cl_exp - 1) // cols_vln_cl_exp
+
+                if n_genes_vln_cl_exp > 0:
+                    fig_violins_cl_exp, axes_violins_cl_exp = plt.subplots(
+                        rows_vln_cl_exp, cols_vln_cl_exp, 
+                        figsize=(cols_vln_cl_exp * max(7, adata_display.obs['leiden_clusters'].nunique() * 0.6), rows_vln_cl_exp * 5), 
+                        squeeze=False 
+                    )
+                    axes_flat_cl_exp = axes_violins_cl_exp.flatten()
+                    
+                    idx_plot_vln_cl_actual = 0 
+                    for idx_plot_vln_cl_actual, gene_name_vln_cl_exp in enumerate(genes_to_visualize_list): # Usar la variable correcta
+                        if idx_plot_vln_cl_actual < len(axes_flat_cl_exp): 
+                            ax_curr_vln_cl_exp = axes_flat_cl_exp[idx_plot_vln_cl_actual]
+                            try:
+                                sc.pl.violin(
+                                    adata_display, 
+                                    keys=gene_name_vln_cl_exp, # <--- Variable del bucle
+                                    groupby='leiden_clusters', 
+                                    rotation=45,
+                                    ax=ax_curr_vln_cl_exp, 
+                                    show=False, 
+                                    use_raw=False, 
+                                    cut=0
+                                    # No title aquí
+                                )
+                                ax_curr_vln_cl_exp.set_title(gene_name_vln_cl_exp) # <--- ¡ERROR AQUÍ! Debe ser gene_name_vln_cl_exp
+                            except Exception as e_vln_gene_cl_exp_loop: 
+                                ax_curr_vln_cl_exp.text(0.5,0.5, f"Error plot\n{gene_name_vln_cl_exp}", ha='center', va='center', color='red')
+                                ax_curr_vln_cl_exp.set_xticks([]); ax_curr_vln_cl_exp.set_yticks([])
+                                print(f"Error al generar violín (clúster) para gen '{gene_name_vln_cl_exp}': {e_vln_gene_cl_exp_loop}")
+                        else: break
+                    
+                    for j_empty_ax_vln_cl_exp in range(idx_plot_vln_cl_actual + 1, len(axes_flat_cl_exp)):
+                        fig_violins_cl_exp.delaxes(axes_flat_cl_exp[j_empty_ax_vln_cl_exp])
+
+                    plt.tight_layout()
+                    st.pyplot(fig_violins_cl_exp)
+                    st.download_button("Descargar Violines por Clúster (PNG)", fig_to_bytes(fig_violins_cl_exp), 
+                                       "ge_violins_cluster.png", key="dl_ge_violins_cluster_final_v2") 
+                    plt.close(fig_violins_cl_exp)
+            
+            # --- VIOLINES POR CONDICIÓN (CORREGIDO) ---
+            if 'condition_temp_dea' in adata_display.obs and adata_display.obs['condition_temp_dea'].nunique() > 1 and genes_to_visualize_list: # Usar la variable correcta
+                st.markdown("#### Diagramas de Violín por Condición (definida en DEA)")
+                
+                n_genes_vln_cond_exp = len(genes_to_visualize_list) # Usar la variable correcta
+                cols_vln_cond_exp = min(2, n_genes_vln_cond_exp)
+                rows_vln_cond_exp = (n_genes_vln_cond_exp + cols_vln_cond_exp - 1) // cols_vln_cond_exp
+
+                if n_genes_vln_cond_exp > 0:
+                    fig_violins_cond_exp, axes_violins_cond_exp = plt.subplots(
+                        rows_vln_cond_exp, cols_vln_cond_exp, 
+                        figsize=(cols_vln_cond_exp * max(7, adata_display.obs['condition_temp_dea'].nunique() * 1.0), rows_vln_cond_exp * 5),
+                        squeeze=False
+                    )
+                    axes_flat_cond_exp = axes_violins_cond_exp.flatten()
+                    
+                    idx_plot_vln_cond_actual = 0
+                    for idx_plot_vln_cond_actual, gene_name_vln_cond_exp in enumerate(genes_to_visualize_list): # Usar la variable correcta
+                        if idx_plot_vln_cond_actual < len(axes_flat_cond_exp):
+                            ax_curr_vln_cond_exp = axes_flat_cond_exp[idx_plot_vln_cond_actual]
+                            try:
+                                sc.pl.violin(adata_display, keys=gene_name_vln_cond_exp, groupby='condition_temp_dea', rotation=45,
+                                             ax=ax_curr_vln_cond_exp, show=False, use_raw=False, cut=0, title=gene_name_vln_cond_exp)
+                            except Exception as e_vln_gene_cond_exp_loop:
+                                ax_curr_vln_cond_exp.text(0.5,0.5, f"Error plot\n{gene_name_vln_cond_exp}", ha='center', va='center', color='red')
+                                ax_curr_vln_cond_exp.set_xticks([]); ax_curr_vln_cond_exp.set_yticks([])
+                                print(f"Error al generar violín (condición) para gen '{gene_name_vln_cond_exp}': {e_vln_gene_cond_exp_loop}")
+                        else: break
+                    
+                    for j_empty_ax_vln_cond_exp in range(idx_plot_vln_cond_actual + 1, len(axes_flat_cond_exp)):
+                        fig_violins_cond_exp.delaxes(axes_flat_cond_exp[j_empty_ax_vln_cond_exp])
+
+                    plt.tight_layout()
+                    st.pyplot(fig_violins_cond_exp)
+                    st.download_button("Descargar Violines por Condición (PNG)", fig_to_bytes(fig_violins_cond_exp), 
+                                       "ge_violins_condition.png", key="dl_ge_violins_condition_final_v2")
+                    plt.close(fig_violins_cond_exp)
+
+            # --- DOT PLOT DEL EXPLORADOR DE GENES ---
+            if len(genes_to_visualize_list) > 0 and 'leiden_clusters' in adata_display.obs: # Usar la variable correcta
+                st.markdown("#### Dot Plot de Genes Seleccionados por Clúster")
+                try:
+                    n_clusters_dot_ge_exp = adata_display.obs['leiden_clusters'].nunique()
+                    fig_ge_dotplot_exp, ax_ge_dotplot_exp = plt.subplots(figsize=(max(8, len(genes_to_visualize_list) * 0.7), max(5, n_clusters_dot_ge_exp * 0.5))) # Usar la variable correcta
+                    sc.pl.dotplot(adata_display, genes_to_visualize_list, groupby='leiden_clusters', ax=ax_ge_dotplot_exp, show=False, standard_scale='var', use_raw=False) # Usar la variable correcta
+                    plt.xticks(rotation=90); plt.tight_layout(); st.pyplot(fig_ge_dotplot_exp)
+                    st.download_button("Descargar Dot Plot de Genes (PNG)", fig_to_bytes(fig_ge_dotplot_exp), "ge_dotplot.png", key="dl_ge_dotplot_final") # Key actualizada
+                    plt.close(fig_ge_dotplot_exp)
+                except Exception as e_ge_dot_exp: 
+                    st.error(f"Error dot plot genes seleccionados: {e_ge_dot_exp}")
+                    st.error(traceback.format_exc()) # Añadir traceback para depuración
+                    st.info("No se pudo generar el dot plot. Asegúrate de que los genes están en el dataset y los clusters están definidos.")
+            else:
+                st.info("No se encontraron genes seleccionados o clusters definidos para el dot plot.")
+
+
+    with tab_info_display:
+        st.subheader("Información del Dataset Procesado y Diagnóstico PCA")
+        st.write(f"Total de Células (post-QC): {adata_display.n_obs}")
+        st.write(f"Total de Genes (post-QC): {adata_display.n_vars}")
+        if st.session_state.adata_hvg_subset is not None: 
+            st.write(f"Número de HVGs usados para PCA/Vecinos/UMAP: {st.session_state.adata_hvg_subset.n_vars}")
+        if 'sample' in adata_display.obs:
+            st.write("Distribución de células por muestra original:")
+            st.dataframe(adata_display.obs['sample'].value_counts())
+        if 'leiden_clusters' in adata_display.obs:
+            st.write("Distribución de células por clúster de Leiden:")
+            st.dataframe(adata_display.obs['leiden_clusters'].value_counts().sort_index())
+        st.write("Primeras 5 filas de Metadatos de Células (`.obs`):"); st.dataframe(adata_display.obs.head())
+        st.write("Primeras 5 filas de Metadatos de Genes (`.var`):"); st.dataframe(adata_display.var.head())
+
+        
+        if st.session_state.show_pca_variance: # NUEVO: Mostrar condicionalmente
+            if st.session_state.adata_hvg_subset is not None and \
+               'pca' in st.session_state.adata_hvg_subset.uns and \
+               'variance_ratio' in st.session_state.adata_hvg_subset.uns['pca']:
+                st.markdown("#### Varianza Explicada por Componentes Principales (sobre HVGs)")
+                try:
+                    variance_ratio_pca_info = st.session_state.adata_hvg_subset.uns['pca']['variance_ratio']
+                    fig_pca_var_plot_info, ax_pca_var_plot_info = plt.subplots(figsize=(8,5))
+                    ax_pca_var_plot_info.plot(range(1, len(variance_ratio_pca_info) + 1), variance_ratio_pca_info, marker='o', linestyle='--', color='dodgerblue', label='Varianza Individual')
+                    ax_pca_var_plot_info.plot(range(1, len(variance_ratio_pca_info) + 1), np.cumsum(variance_ratio_pca_info), marker='.', linestyle='-', color='orangered', label='Varianza Acumulada')
+                    ax_pca_var_plot_info.set_xlabel("Número de Componentes Principales")
+                    ax_pca_var_plot_info.set_ylabel("Proporción de Varianza Explicada")
+                    ax_pca_var_plot_info.set_title("Scree Plot - Varianza de PCA")
+                    ax_pca_var_plot_info.grid(True, linestyle=':', alpha=0.7)
+                    
+                    # Marcar el número de PCs seleccionado por el usuario
+                    # Obtener el valor de n_pcs que realmente se usó en el pipeline (puede haber sido ajustado)
+                    # Esto es un poco más complejo porque current_n_pcs_val está en el scope del pipeline.
+                    # Una forma es guardarlo en session_state si se ajustó, o simplemente usar st.session_state.n_pcs
+                    # Aquí, por simplicidad, usaremos el valor del slider, pero idealmente sería el valor usado.
+                    pcs_used_in_pipeline = st.session_state.n_pcs 
+                    if 'X_pca_hvg' in adata_display.obsm: # Si se transfirió el PCA
+                         pcs_used_in_pipeline = adata_display.obsm['X_pca_hvg'].shape[1]
+
+
+                    ax_pca_var_plot_info.axvline(x=pcs_used_in_pipeline, color='darkgreen', linestyle=':', linewidth=2, label=f'PCs Usados ({pcs_used_in_pipeline})')
+                    ax_pca_var_plot_info.legend() 
+
+                    st.pyplot(fig_pca_var_plot_info)
+                    plt.close(fig_pca_var_plot_info)
+
+                    df_pca_variance_info = pd.DataFrame({
+                        'PC': range(1, len(variance_ratio_pca_info) + 1),
+                        'Varianza Individual': variance_ratio_pca_info,
+                        'Varianza Acumulada': np.cumsum(variance_ratio_pca_info)
+                    })
+                    st.dataframe(df_pca_variance_info.head(max(15, pcs_used_in_pipeline + 5)))
+                except Exception as e_pca_plot_info:
+                    st.error(f"Error generando plot de varianza PCA: {e_pca_plot_info}")
+            else:
+                st.info("Datos de varianza PCA no disponibles.")
+                st.info("Asegúrate de que el PCA se ha calculado y los resultados están en `adata.uns['pca']`.")
+                st.info("Si el PCA no se ha calculado, asegúrate de que el número de PCs es mayor que 0 y que el PCA se ha ejecutado correctamente.")
+
+        
+        # ... (resto de la info del dataset) ...
+
+else: # Si el análisis no se ha completado
+    # Recalcular all_files_provided aquí para este scope
+    all_files_provided_main_scope = True
+    if st.session_state.num_samples > 0:
+        for i in range(st.session_state.num_samples):
+            if not (st.session_state.sample_files.get(f"matrix_file_{i}") and \
+                    st.session_state.sample_files.get(f"features_file_{i}") and \
+                    st.session_state.sample_files.get(f"barcodes_file_{i}")):
+                all_files_provided_main_scope = False; break
+    else: all_files_provided_main_scope = False
+
+    if st.session_state.adata_raw is None and st.session_state.num_samples > 0 and not all_files_provided_main_scope:
+        st.info("Bienvenido. Sube todos los archivos y haz clic en 'Cargar y Concatenar Datos'.")
+    elif st.session_state.num_samples < 1 : 
+        st.info("Bienvenido. Ajusta el 'Número de muestras' (mínimo 1) para comenzar.")
+    elif st.session_state.adata_raw is None and st.session_state.num_samples > 0 and all_files_provided_main_scope:
+        st.info("Archivos listos. Haz clic en 'Cargar y Concatenar Datos' en la sidebar.")
+    elif st.session_state.adata_raw is not None and not st.session_state.analysis_done:
+        st.info("Datos cargados. Haz clic en 'Ejecutar Pipeline Principal' en la sidebar.")
+    else: 
+        st.info("Bienvenido al Analizador Interactivo de scRNA-seq. Configura tus muestras y parámetros en la sidebar para comenzar.")
+
+# Notas finales en la Sidebar
+st.sidebar.markdown("---")
+
+# Sección para generar reporte (muy básica, solo HTML con parámetros)
+if st.session_state.analysis_done and st.session_state.adata_processed:
+    if st.sidebar.button("Generar Reporte Básico (HTML)", key="generate_report_btn_sidebar"):
+        try:
+            report_html_parts = ["<html><head><title>Reporte scRNA-seq</title><style>body{font-family: sans-serif;} ul{list-style-type: none; padding-left: 0;} li{margin-bottom: 5px;}</style></head><body>"]
+            report_html_parts.append("<h1>Reporte de Análisis Single-Cell RNA-seq</h1>")
+            report_html_parts.append(f"<p>Fecha de Generación: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}</p>")
+            
+            report_html_parts.append("<h2>Parámetros del Pipeline Clave:</h2><ul>")
+            params_to_report_list = ["min_genes", "min_cells", "mito_prefix", "max_mito_pct", "n_top_genes_hvg", 
+                                "n_pcs", "n_neighbors_val", "leiden_res", "leiden_flavor", 
+                                "umap_n_neighbors", "umap_min_dist", "umap_init_pos", "calc_umap_3d"]
+            for p_key_report in params_to_report_list:
+                report_html_parts.append(f"<li><b>{p_key_report.replace('_', ' ').title()}:</b> {st.session_state.get(p_key_report, 'N/A')}</li>")
+            report_html_parts.append("</ul>")
+
+            adata_report_info = st.session_state.adata_processed
+            report_html_parts.append("<h2>Resumen del Dataset Procesado:</h2><ul>")
+            report_html_parts.append(f"<li>Células: {adata_report_info.n_obs}</li>")
+            report_html_parts.append(f"<li>Genes: {adata_report_info.n_vars}</li>")
+            if 'sample' in adata_report_info.obs:
+                 report_html_parts.append(f"<li>Muestras: {', '.join(sorted(adata_report_info.obs['sample'].unique()))}</li>")
+            if 'leiden_clusters' in adata_report_info.obs:
+                 report_html_parts.append(f"<li>Clusters Leiden Encontrados: {adata_report_info.obs['leiden_clusters'].nunique()}</li>")
+            report_html_parts.append("</ul>")
+            
+            # (Idea para el futuro: Incrustar plots como imágenes base64)
+            
+            report_html_parts.append("</body></html>")
+            final_report_html_content = "".join(report_html_parts)
+            
+            st.sidebar.download_button(
+                "Descargar Reporte (HTML)",
+                data=final_report_html_content,
+                file_name=f"scRNAseq_report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.html",
+                mime="text/html",
+                key="download_report_html_sidebar_btn"
+            )
+            st.sidebar.success("Reporte HTML listo para descargar.")
+        except Exception as e_report_gen:
+            st.sidebar.error(f"Error generando reporte: {e_report_gen}")
+
+
+# Nota sobre dependencias y versiones
+st.sidebar.markdown("---")
+st.sidebar.info("Analizador scRNA-seq v1.0. Basado en Scanpy.")
+st.sidebar.markdown("Si experimentas errores con UMAP (ej: `ValueError: high is out of bounds`), considera usar un entorno con `numpy<2.0` o Python 3.10/3.11.")
+st.sidebar.markdown("Se recomienda crear un entorno virtual con versiones compatibles de las bibliotecas (ej: `numpy<2.0` si se experimentan errores con UMAP).")
+st.sidebar.markdown("Si tienes problemas, consulta la [documentación de Scanpy](https://scanpy.readthedocs.io/en/stable/) o el [repositorio de GitHub]).")
+st.sidebar.markdown("Para más información, visita el [repositorio de GitHub]).")
+st.sidebar.markdown("**Desarrollado por:** Pedro Botías - pbotias@ucm.es - https://github.com/pbotiast/scRNASeq")
+st.sidebar.markdown("**Licencia:** Licencia MIT - https://opensource.org/licenses/MIT")
+st.sidebar.markdown("**Fecha:** [05/05/2025] - [20/05/2025]")  
+st.sidebar.markdown("**Versión:** 1.1")
+st.sidebar.markdown("**Última Actualización:** 2025-05-20")
+st.sidebar.markdown("**Notas:** Esta aplicación es un prototipo y puede contener errores. Usa bajo tu propio riesgo.")
+st.sidebar.markdown("**Disclaimer:** Esta aplicación es un prototipo y puede contener errores. Usa bajo tu propio riesgo.")
 
 
 
