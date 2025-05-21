@@ -781,52 +781,111 @@ if st.session_state.analysis_done and st.session_state.adata_processed is not No
         if 'X_umap' not in adata_display.obsm:
             st.warning("UMAP 2D no calculado o falló. No se pueden mostrar plots UMAP 2D.")
         else:
-            st.subheader("UMAP 2D Interactivo por Clústeres de Leiden")
+            # --- UMAP 2D POR CLÚSTERES ---
+            st.subheader("UMAP 2D por Clústeres de Leiden")
             if 'leiden_clusters' in adata_display.obs:
-                try:
-                    umap_coords = adata_display.obsm['X_umap']
-                    df_umap = pd.DataFrame({
-                        'UMAP1': umap_coords[:, 0],
-                        'UMAP2': umap_coords[:, 1],
-                        'Cluster': adata_display.obs['leiden_clusters'].astype(str), # Plotly prefiere strings para categorías
-                        'Muestra': adata_display.obs.get('sample', pd.NA).astype(str), # Para hover
-                        'N_Genes': adata_display.obs.get('n_genes_by_counts', pd.NA) # Ejemplo de más info en hover
-                    })
+                
+                # --- VERSIÓN INTERACTIVA (PLOTLY) ---
+                with st.expander("Ver UMAP 2D Interactivo por Clústeres (Plotly)", expanded=True): # Expandido por defecto
+                    try:
+                        umap_coords_c_plotly = adata_display.obsm['X_umap']
+                        df_umap_c_plotly = pd.DataFrame({
+                            'UMAP1': umap_coords_c_plotly[:, 0],
+                            'UMAP2': umap_coords_c_plotly[:, 1],
+                            'Cluster': adata_display.obs['leiden_clusters'].astype(str),
+                            'Muestra': adata_display.obs.get('sample', pd.NA).astype(str),
+                            'N_Genes': adata_display.obs.get('n_genes_by_counts', pd.NA)
+                        })
+                        # ... (tu lógica para color_discrete_sequence_clusters si la tienes) ...
+                        fig_umap_plotly_c = px.scatter(
+                            df_umap_c_plotly, x='UMAP1', y='UMAP2', color='Cluster',
+                            hover_data=['Muestra', 'N_Genes'],
+                            title=f"UMAP Interactivo (Clusters Leiden, Res: {st.session_state.leiden_res})"
+                        )
+                        point_size_plotly_c = max(1, int(st.session_state.plot_point_size / 10))
+                        fig_umap_plotly_c.update_traces(marker=dict(size=point_size_plotly_c, opacity=0.8))
+                        st.plotly_chart(fig_umap_plotly_c, use_container_width=True)
+                        # ... (botón de descarga HTML para el interactivo) ...
+                    except Exception as e_plotly_c:
+                        st.error(f"Error UMAP 2D interactivo (clústeres): {e_plotly_c}")
+                        st.error(traceback.format_exc())
 
-                    # Crear el scatter plot con Plotly Express
-                    fig_umap_plotly = px.scatter(
-                        df_umap, 
-                        x='UMAP1', 
-                        y='UMAP2', 
-                        color='Cluster', # Colorear por clúster
-                        # Si quieres usar la paleta de Matplotlib seleccionada, necesitarías un mapeo:
-                        # color_discrete_map={cluster_id: color_hex for cluster_id, color_hex in zip(sorted(df_umap['Cluster'].unique()), plt.get_cmap(st.session_state.plot_palette).colors)},
-                        hover_data=['Muestra', 'N_Genes'], # Info adicional al pasar el ratón
-                        title=f"UMAP 2D Interactivo (Clusters Leiden, Res: {st.session_state.leiden_res})"
-                    )
-                    
-                    # Ajustar tamaño de puntos y opacidad si se desea
-                    point_size_plotly = max(1, int(st.session_state.plot_point_size / 10)) # Ajustar escala para Plotly
-                    fig_umap_plotly.update_traces(marker=dict(size=point_size_plotly, opacity=0.8))
-                    
-                    st.plotly_chart(fig_umap_plotly, use_container_width=True)
-
-                    # Opción de descarga HTML para el plot interactivo
-                    html_buffer_umap = io.StringIO()
-                    fig_umap_plotly.write_html(html_buffer_umap)
-                    st.download_button(
-                        label="Descargar UMAP Clústeres (HTML Interactivo)",
-                        data=html_buffer_umap.getvalue(),
-                        file_name="umap_clusters_interactive.html",
-                        mime="text/html",
-                        key="dl_umap_plotly_clusters"
-                    )
-                except Exception as e_umap_plotly_c:
-                    st.error(f"Error generando UMAP 2D interactivo por clústeres: {e_umap_plotly_c}")
-                    st.error(traceback.format_exc())
+                # --- VERSIÓN ESTÁTICA (SCANPY/MATPLOTLIB) ---
+                with st.expander("Ver UMAP 2D Estático por Clústeres (Scanpy)", expanded=False): # Contraído por defecto
+                    try:
+                        fig_umap_c_static, ax_c_static = plt.subplots(figsize=(7,6))
+                        sc.pl.umap(
+                            adata_display, 
+                            color='leiden_clusters', 
+                            legend_loc='on data', # <--- Muestra números/etiquetas en los clústeres
+                            ax=ax_c_static, 
+                            show=False, 
+                            title=f"UMAP Estático (Clusters Leiden, Res: {st.session_state.leiden_res})", 
+                            size=st.session_state.plot_point_size, 
+                            palette=st.session_state.plot_palette if st.session_state.plot_palette != 'default' else None
+                        )
+                        st.pyplot(fig_umap_c_static)
+                        st.download_button("UMAP Clústeres Estático (PNG)", fig_to_bytes(fig_umap_c_static), 
+                                           "umap_clusters_static.png", "image/png", key="dl_umc_static_final")
+                        plt.close(fig_umap_c_static)
+                    except Exception as e_static_c:
+                        st.error(f"Error UMAP 2D estático (clústeres): {e_static_c}")
+                        st.error(traceback.format_exc())
             else: 
                 st.warning("Clusters Leiden no encontrados para plot UMAP.")
-                st.info("UMAP 2D fue seleccionado en parámetros pero no se pudo calcular o los datos necesarios ('X_umap', 'leiden_clusters') faltan.")
+
+            st.markdown("---") # Separador
+
+            # --- UMAP 2D POR MUESTRA ---
+            if 'sample' in adata_display.obs:
+                st.subheader("UMAP 2D por Muestra")
+
+                # --- VERSIÓN INTERACTIVA (PLOTLY) ---
+                with st.expander("Ver UMAP 2D Interactivo por Muestra (Plotly)", expanded=True):
+                    try:
+                        # ... (tu código para UMAP 2D interactivo por Muestra con Plotly, como lo tenías) ...
+                        umap_coords_s_plotly = adata_display.obsm['X_umap']
+                        df_umap_s_plotly = pd.DataFrame({
+                            'UMAP1': umap_coords_s_plotly[:, 0], 'UMAP2': umap_coords_s_plotly[:, 1],
+                            'Muestra': adata_display.obs['sample'].astype(str),
+                            'Cluster': adata_display.obs.get('leiden_clusters', "N/A").astype(str)
+                        })
+                        fig_umap_plotly_s = px.scatter(
+                            df_umap_s_plotly, x='UMAP1', y='UMAP2', color='Muestra',
+                            hover_data=['Cluster'], title="UMAP Interactivo por Muestra"
+                        )
+                        point_size_plotly_s = max(1, int(st.session_state.plot_point_size / 10))
+                        fig_umap_plotly_s.update_traces(marker=dict(size=point_size_plotly_s, opacity=0.8))
+                        st.plotly_chart(fig_umap_plotly_s, use_container_width=True)
+                        # ... (botón de descarga HTML)
+                    except Exception as e_plotly_s:
+                        st.error(f"Error UMAP 2D interactivo (muestra): {e_plotly_s}")
+                        st.error(traceback.format_exc())
+
+
+                # --- VERSIÓN ESTÁTICA (SCANPY/MATPLOTLIB) ---
+                with st.expander("Ver UMAP 2D Estático por Muestra (Scanpy)", expanded=False):
+                    try:
+                        fig_umap_s_static, ax_s_static = plt.subplots(figsize=(7,6))
+                        sc.pl.umap(
+                            adata_display, 
+                            color='sample', 
+                            ax=ax_s_static, 
+                            show=False, 
+                            title="UMAP Estático por Muestra", 
+                            size=st.session_state.plot_point_size,
+                            legend_loc='right margin', # O donde prefieras la leyenda de muestras
+                            palette=st.session_state.plot_palette if st.session_state.plot_palette != 'default' else None
+                        )
+                        st.pyplot(fig_umap_s_static)
+                        st.download_button("UMAP Muestra Estático (PNG)", fig_to_bytes(fig_umap_s_static), 
+                                           "umap_sample_static.png", "image/png", key="dl_ums_static_final")
+                        plt.close(fig_umap_s_static)
+                    except Exception as e_static_s:
+                        st.error(f"Error UMAP 2D estático (muestra): {e_static_s}")
+                        st.error(traceback.format_exc())
+            elif 'X_umap' in adata_display.obsm:
+                 st.warning("Columna 'sample' no encontrada para el UMAP por Muestra.")
 
             # UMAP 3D
             if st.session_state.calc_umap_3d: # Solo intentar si el usuario lo pidió
@@ -1757,6 +1816,8 @@ st.sidebar.markdown("**Versión:** 1.1")
 st.sidebar.markdown("**Última Actualización:** 2025-05-20")
 st.sidebar.markdown("**Notas:** Esta aplicación es un prototipo y puede contener errores. Usa bajo tu propio riesgo.")
 st.sidebar.markdown("**Disclaimer:** Esta aplicación es un prototipo y puede contener errores. Usa bajo tu propio riesgo.")
+
+
 
 
 
