@@ -24,6 +24,7 @@ import plotly.express as px
 # import plotly.graph_objects as go
 # from scipy.stats import zscore
 import warnings
+import base64 # Para incrustar imágenes
 
 # Filtrar warnings específicos
 warnings.filterwarnings("ignore", category=UserWarning, module="scanpy.preprocessing._highly_variable_genes")
@@ -153,6 +154,164 @@ def suggest_genes_yeast(input_genes, adata_var_names_lower_map, sgd_aliases_lowe
             if final_suggestions_for_adata:
                  suggestions[gene_input_raw] = list(dict.fromkeys(final_suggestions_for_adata)) # Únicos
     return suggestions
+
+# --- Función para generar el reporte ---
+def generate_report_html_content(session_state, adata_processed_report):
+    """Genera el contenido HTML del reporte."""
+    
+    report_parts = [
+        "<html><head><title>Reporte Análisis scRNA-seq</title>",
+        "<style>",
+        "body { font-family: sans-serif; margin: 20px; }",
+        "h1, h2, h3 { color: #333; }",
+        "table { border-collapse: collapse; margin-bottom: 20px; font-size: 0.9em; }",
+        "th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }",
+        "th { background-color: #f2f2f2; }",
+        "img { max-width: 100%; height: auto; border: 1px solid #ddd; margin-bottom:10px; }",
+        "ul { list-style-type: none; padding-left: 0; }",
+        "li { margin-bottom: 5px; }",
+        ".plot-container { margin-bottom: 30px; page-break-inside: avoid; }", # Evitar saltos de página dentro de un plot
+        "</style></head><body>"
+    ]
+
+    adata_display_report = adata_processed_report # Usar el AnnData pasado
+    
+    report_parts.append("<h1>Reporte de Análisis Single-Cell RNA-seq</h1>")
+    report_parts.append(f"<p>Fecha de Generación: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}</p>")
+
+    # --- Parámetros del Pipeline ---
+    report_parts.append("<h2>Parámetros del Pipeline Clave:</h2><ul>")
+    params_to_report = [
+        "min_genes", "min_cells", "mito_prefix", "max_mito_pct", 
+        "n_top_genes_hvg", "n_pcs", "n_neighbors_val", "leiden_res", "leiden_flavor", 
+        "umap_n_neighbors", "umap_min_dist", "umap_init_pos", "calc_umap_3d"
+    ]
+    for p_key in params_to_report:
+        report_parts.append(f"<li><b>{p_key.replace('_', ' ').title()}:</b> {session_state.get(p_key, 'N/A')}</li>")
+    report_parts.append("</ul>")
+
+    # --- Resumen del Dataset ---
+    report_parts.append("<h2>Resumen del Dataset Procesado:</h2><ul>")
+    report_parts.append(f"<li>Células Totales (post-QC): {adata_display_report.n_obs}</li>")
+    report_parts.append(f"<li>Genes Totales (post-QC): {adata_display_report.n_vars}</li>")
+    if 'sample' in adata_display_report.obs:
+         report_parts.append(f"<li>Muestras: {', '.join(sorted(adata_display_report.obs['sample'].unique()))}</li>")
+    if 'leiden_clusters' in adata_display_report.obs:
+         report_parts.append(f"<li>Clusters Leiden Encontrados: {adata_display_report.obs['leiden_clusters'].nunique()}</li>")
+    if session_state.adata_hvg_subset is not None:
+        report_parts.append(f"<li>HVGs Usados para Downstream: {session_state.adata_hvg_subset.n_vars}</li>")
+    report_parts.append("</ul>")
+
+    # Función auxiliar para convertir plot a imagen base64
+    def plt_to_base64_html_img(fig):
+        img_bytes = fig_to_bytes(fig, format='png') # Usa tu función fig_to_bytes
+        img_base64 = base64.b64encode(img_bytes).decode()
+        plt.close(fig) # Cerrar figura para liberar memoria
+        return f'<img src="data:image/png;base64,{img_base64}" alt="plot">'
+
+    # --- Plots de QC ---
+    report_parts.append("<div class='plot-container'><h3>Plots de Control de Calidad (por Muestra)</h3>")
+    if 'sample' in adata_display_report.obs:
+        qc_metrics_list_report = ['n_genes_by_counts', 'total_counts', 'pct_counts_mt']
+        qc_titles_report = ["Nº Genes Detectados", "Nº Cuentas Totales", "% Cuentas Mitocondriales"]
+        for metric, title in zip(qc_metrics_list_report, qc_titles_report):
+            if metric in adata_display_report.obs.columns:
+                report_parts.append(f"<h4>{title}</h4>")
+                fig_qc, ax_qc = plt.subplots(figsize=(max(5, adata_display_report.obs['sample'].nunique()*0.8), 4))
+                sc.pl.violin(adata_display_report, keys=metric, groupby='sample', rotation=45, ax=ax_qc, show=False, use_raw=False, cut=0)
+                plt.tight_layout()
+                report_parts.append(plt_to_base64_html_img(fig_qc))
+    report_parts.append("</div>")
+
+
+    # --- Diagnóstico PCA (Elbow Plot) ---
+    if session_state.get("show_pca_variance", True) and \
+       session_state.adata_hvg_subset is not None and \
+       'pca' in session_state.adata_hvg_subset.uns and \
+       'variance_ratio' in session_state.adata_hvg_subset.uns['pca']:
+        
+        report_parts.append("<div class='plot-container'><h3>Diagnóstico PCA</h3>")
+        variance_ratio_rep = session_state.adata_hvg_subset.uns['pca']['variance_ratio']
+        pcs_used_rep = session_state.get("n_pcs_actually_used_in_pipeline", session_state.n_pcs)
+        
+        fig_elbow_rep, ax_elbow_rep = plt.subplots(figsize=(6,4))
+        ax_elbow_rep.plot(range(1, len(variance_ratio_rep) + 1), variance_ratio_rep, marker='o', linestyle='-')
+        ax_elbow_rep.set_title("Elbow Plot (Varianza por PC)"); ax_elbow_rep.set_xlabel("PC"); ax_elbow_rep.set_ylabel("Varianza Explicada")
+        ax_elbow_rep.axvline(x=pcs_used_rep, color='r', linestyle='--', label=f'PCs Usados ({pcs_used_rep})')
+        ax_elbow_rep.legend(); plt.tight_layout()
+        report_parts.append(plt_to_base64_html_img(fig_elbow_rep))
+
+        fig_cumvar_rep, ax_cumvar_rep = plt.subplots(figsize=(6,4))
+        ax_cumvar_rep.plot(range(1, len(variance_ratio_rep) + 1), np.cumsum(variance_ratio_rep), marker='.')
+        ax_cumvar_rep.set_title("Varianza Acumulada PCA"); ax_cumvar_rep.set_xlabel("Nº PCs"); ax_cumvar_rep.set_ylabel("Varianza Acumulada")
+        ax_cumvar_rep.axvline(x=pcs_used_rep, color='r', linestyle='--', label=f'PCs Usados ({pcs_used_rep})')
+        ax_cumvar_rep.axhline(y=0.9, color='grey', linestyle=':', label='90% Varianza')
+        ax_cumvar_rep.legend(); plt.tight_layout()
+        report_parts.append(plt_to_base64_html_img(fig_cumvar_rep))
+        report_parts.append("</div>")
+
+    # --- UMAPs Principales ---
+    report_parts.append("<div class='plot-container'><h3>Visualizaciones UMAP 2D</h3>")
+    if 'X_umap' in adata_display_report.obsm:
+        if 'leiden_clusters' in adata_display_report.obs:
+            report_parts.append("<h4>UMAP por Clústeres Leiden</h4>")
+            fig_u_c_rep, ax_u_c_rep = plt.subplots(figsize=(6,5))
+            sc.pl.umap(adata_display_report, color='leiden_clusters', ax=ax_u_c_rep, legend_loc='on data', show=False, 
+                       size=session_state.plot_point_size, palette=session_state.plot_palette if session_state.plot_palette != 'default' else None)
+            plt.tight_layout()
+            report_parts.append(plt_to_base64_html_img(fig_u_c_rep))
+
+        if 'sample' in adata_display_report.obs:
+            report_parts.append("<h4>UMAP por Muestra</h4>")
+            fig_u_s_rep, ax_u_s_rep = plt.subplots(figsize=(6,5))
+            sc.pl.umap(adata_display_report, color='sample', ax=ax_u_s_rep, show=False, 
+                       size=session_state.plot_point_size, palette=session_state.plot_palette if session_state.plot_palette != 'default' else None)
+            plt.tight_layout()
+            report_parts.append(plt_to_base64_html_img(fig_u_s_rep))
+    else:
+        report_parts.append("<p>Datos UMAP 2D no disponibles.</p>")
+    report_parts.append("</div>")
+
+    # --- Tabla Resumida de Genes Marcadores ---
+    if session_state.marker_genes_df is not None and not session_state.marker_genes_df.empty:
+        report_parts.append("<div class='plot-container'><h3>Top Genes Marcadores por Clúster</h3>")
+        # Mostrar solo N_TOP_FOR_REPORT marcadores por clúster en el reporte
+        N_TOP_FOR_REPORT = 3 
+        df_markers_report = session_state.marker_genes_df.groupby('Cluster').head(N_TOP_FOR_REPORT)
+        # Formatear p-valores para el reporte
+        df_markers_report_html = df_markers_report.copy()
+        if 'P-Value' in df_markers_report_html:
+            df_markers_report_html['P-Value'] = df_markers_report_html['P-Value'].apply(lambda x: f"{x:.2e}")
+        if 'P-Value Adj' in df_markers_report_html:
+            df_markers_report_html['P-Value Adj'] = df_markers_report_html['P-Value Adj'].apply(lambda x: f"{x:.2e}")
+        if 'Score' in df_markers_report_html:
+            df_markers_report_html['Score'] = df_markers_report_html['Score'].apply(lambda x: f"{x:.3f}")
+        if 'Log2FC' in df_markers_report_html:
+            df_markers_report_html['Log2FC'] = df_markers_report_html['Log2FC'].apply(lambda x: f"{x:.3f}")
+
+        report_parts.append(df_markers_report_html[['Cluster', 'Rank', 'Gene', 'Log2FC', 'P-Value Adj', 'Score']].to_html(index=False, classes='styled-table'))
+        report_parts.append("</div>")
+    
+    # --- (Opcional) Resumen DEA ---
+    if session_state.dea_results_df is not None and not session_state.dea_results_df.empty:
+        report_parts.append("<div class='plot-container'><h3>Resumen Análisis de Expresión Diferencial</h3>")
+        report_parts.append(f"<p><b>Comparación:</b> {session_state.dea_comparison_str}</p>")
+        # Formatear p-valores para el reporte
+        df_dea_report_html = session_state.dea_results_df.head(10).copy() # Top 10 para el reporte
+        if 'P-Value' in df_dea_report_html:
+            df_dea_report_html['P-Value'] = df_dea_report_html['P-Value'].apply(lambda x: f"{x:.2e}")
+        if 'P-Value Adj' in df_dea_report_html:
+            df_dea_report_html['P-Value Adj'] = df_dea_report_html['P-Value Adj'].apply(lambda x: f"{x:.2e}")
+        if 'Scores' in df_dea_report_html: # Nota: 'Scores' en plural
+             df_dea_report_html['Scores'] = df_dea_report_html['Scores'].apply(lambda x: f"{x:.3f}")
+        if 'Log2FC' in df_dea_report_html:
+            df_dea_report_html['Log2FC'] = df_dea_report_html['Log2FC'].apply(lambda x: f"{x:.3f}")
+        report_parts.append(df_dea_report_html[['Gene', 'Log2FC', 'P-Value Adj', 'Scores']].to_html(index=False, classes='styled-table'))
+        report_parts.append("</div>")
+
+
+    report_parts.append("</body></html>")
+    return "".join(report_parts)
 
 # --- Inicialización de st.session_state ---
 default_values = {
@@ -1759,47 +1918,26 @@ else: # Si el análisis no se ha completado
 # Notas finales en la Sidebar
 st.sidebar.markdown("---")
 
-# Sección para generar reporte (muy básica, solo HTML con parámetros)
+# Sección para generar reporte
+st.sidebar.markdown("---")
 if st.session_state.analysis_done and st.session_state.adata_processed:
-    if st.sidebar.button("Generar Reporte Básico (HTML)", key="generate_report_btn_sidebar"):
+    if st.sidebar.button("Generar Reporte (HTML)", key="generate_report_btn_sidebar_final_v2"): # Nueva key
         try:
-            report_html_parts = ["<html><head><title>Reporte scRNA-seq</title><style>body{font-family: sans-serif;} ul{list-style-type: none; padding-left: 0;} li{margin-bottom: 5px;}</style></head><body>"]
-            report_html_parts.append("<h1>Reporte de Análisis Single-Cell RNA-seq</h1>")
-            report_html_parts.append(f"<p>Fecha de Generación: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}</p>")
-            
-            report_html_parts.append("<h2>Parámetros del Pipeline Clave:</h2><ul>")
-            params_to_report_list = ["min_genes", "min_cells", "mito_prefix", "max_mito_pct", "n_top_genes_hvg", 
-                                "n_pcs", "n_neighbors_val", "leiden_res", "leiden_flavor", 
-                                "umap_n_neighbors", "umap_min_dist", "umap_init_pos", "calc_umap_3d"]
-            for p_key_report in params_to_report_list:
-                report_html_parts.append(f"<li><b>{p_key_report.replace('_', ' ').title()}:</b> {st.session_state.get(p_key_report, 'N/A')}</li>")
-            report_html_parts.append("</ul>")
-
-            adata_report_info = st.session_state.adata_processed
-            report_html_parts.append("<h2>Resumen del Dataset Procesado:</h2><ul>")
-            report_html_parts.append(f"<li>Células: {adata_report_info.n_obs}</li>")
-            report_html_parts.append(f"<li>Genes: {adata_report_info.n_vars}</li>")
-            if 'sample' in adata_report_info.obs:
-                 report_html_parts.append(f"<li>Muestras: {', '.join(sorted(adata_report_info.obs['sample'].unique()))}</li>")
-            if 'leiden_clusters' in adata_report_info.obs:
-                 report_html_parts.append(f"<li>Clusters Leiden Encontrados: {adata_report_info.obs['leiden_clusters'].nunique()}</li>")
-            report_html_parts.append("</ul>")
-            
-            # (Idea para el futuro: Incrustar plots como imágenes base64)
-            
-            report_html_parts.append("</body></html>")
-            final_report_html_content = "".join(report_html_parts)
-            
-            st.sidebar.download_button(
-                "Descargar Reporte (HTML)",
-                data=final_report_html_content,
-                file_name=f"scRNAseq_report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.html",
-                mime="text/html",
-                key="download_report_html_sidebar_btn"
-            )
+            with st.spinner("Generando reporte HTML..."):
+                # Pasar st.session_state completo y el AnnData procesado
+                html_content_report = generate_report_html_content(st.session_state, st.session_state.adata_processed)
+                
+                st.sidebar.download_button(
+                    label="Descargar Reporte HTML", # Cambiado para consistencia
+                    data=html_content_report,
+                    file_name=f"scRNAseq_Analysis_Report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.html",
+                    mime="text/html",
+                    key="download_final_report_html_btn" # Nueva key
+                )
             st.sidebar.success("Reporte HTML listo para descargar.")
-        except Exception as e_report_gen:
-            st.sidebar.error(f"Error generando reporte: {e_report_gen}")
+        except Exception as e_report_gen_main_exc: # Renombrar variable de excepción
+            st.sidebar.error(f"Error al generar el reporte: {e_report_gen_main_exc}")
+            st.sidebar.error(traceback.format_exc()) # Mostrar traceback para depurar
 
 
 # Nota sobre dependencias y versiones
@@ -1816,6 +1954,8 @@ st.sidebar.markdown("**Versión:** 1.1")
 st.sidebar.markdown("**Última Actualización:** 2025-05-20")
 st.sidebar.markdown("**Notas:** Esta aplicación es un prototipo y puede contener errores. Usa bajo tu propio riesgo.")
 st.sidebar.markdown("**Disclaimer:** Esta aplicación es un prototipo y puede contener errores. Usa bajo tu propio riesgo.")
+
+
 
 
 
